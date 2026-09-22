@@ -1,0 +1,70 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and account preferences",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "status": { "type": "string", "enum": ["Basick", "Pro", "VIP", "Diamond"] },
+        "preferredLanguage": { "type": "string" },
+        "onboardingCompleted": { "type": "boolean" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["status"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "A conversation session belonging to a user",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "pinned": { "type": "boolean" }
+      }
+    },
+    "Message": {
+      "title": "Message",
+      "description": "An individual message in a chat",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "sender": { "type": "string", "enum": ["user", "ai"] },
+        "timestamp": { "type": "string" }
+      }
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "System settings such as admin emails and API keys",
+      "type": "object",
+      "properties": {
+        "emails": { "type": "array" },
+        "gemini": { "type": "string" },
+        "groq": { "type": "string" },
+        "openrouter": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles and subscription status"
+    },
+    "/users/{userId}/chats/{chatId}": {
+      "schema": { "$ref": "#/entities/Chat" },
+      "description": "User conversation sessions"
+    },
+    "/users/{userId}/chats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/Message" },
+      "description": "Messages inside a conversation"
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/Settings" },
+      "description": "Application settings and access lists"
+    }
+  }
+}

@@ -1,0 +1,46 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+    
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'ashtosh.biswas.2026@gmail.com' ||
+        request.auth.token.email == 'nuxasuff@gmail.com' ||
+        (exists(/databases/$(database)/documents/settings/admins) && 
+         request.auth.token.email in get(/databases/$(database)/documents/settings/admins).data.get('emails', []))
+      );
+    }
+
+    match /users/{userId} {
+      allow get: if isOwner(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create, update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+      
+      match /chats/{chatId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+        
+        match /messages/{messageId} {
+          allow read, write: if isOwner(userId) || isAdmin();
+        }
+      }
+    }
+    
+    match /settings/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
