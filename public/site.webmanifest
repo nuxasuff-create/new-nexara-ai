@@ -1,5 +1,5 @@
 {
-  "name": "Nexara AI – The Next Era of Artificial Intelligence",
+  "name": "Nexara AI Chat",
   "short_name": "Nexara AI",
   "description": "Nexara AI is a modern next-generation AI platform developed by Pretom Biswas, featuring real-time web search, interactive code artifacts, and advanced multimodality.",
   "start_url": "/",
@@ -7,6 +7,16 @@
   "background_color": "#090d16",
   "theme_color": "#6366f1",
   "icons": [
+    {
+      "src": "/android-chrome-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/android-chrome-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
     {
       "src": "/favicon-16x16.png",
       "sizes": "16x16",
@@ -16,18 +26,6 @@
       "src": "/favicon-32x32.png",
       "sizes": "32x32",
       "type": "image/png"
-    },
-    {
-      "src": "/android-chrome-192x192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/android-chrome-512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
     },
     {
       "src": "/apple-touch-icon.png",

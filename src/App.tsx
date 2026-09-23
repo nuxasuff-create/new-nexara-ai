@@ -11,6 +11,7 @@ import AdminScreen from './screens/AdminScreen';
 import UpgradeModal from './components/UpgradeModal';
 import OnboardingModal from './components/OnboardingModal';
 import PageTransition from './components/PageTransition';
+import SEOHead from './components/SEOHead';
 import { Plus, AlertCircle, Lock, X } from 'lucide-react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
@@ -328,6 +329,7 @@ export default function App() {
 
   return (
     <div className="flex h-[100dvh] w-full bg-[var(--bg)] text-[var(--text)] overflow-hidden font-sans relative selection:bg-primary/30">
+      <SEOHead screenKey={currentScreen} />
       
       {/* Immersive Atmospheric Background (Only visible in Dark Mode) */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden opacity-100 transition-opacity duration-1000">

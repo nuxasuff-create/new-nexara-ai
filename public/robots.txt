@@ -1,4 +1,8 @@
 User-agent: *
 Allow: /
+Disallow: /admin
+Disallow: /settings
+Disallow: /api/
 
+Sitemap: https://ainexara.com/sitemap.xml
 Sitemap: https://nexara-ai.com/sitemap.xml

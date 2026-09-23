@@ -501,7 +501,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
   const [isListening, setIsListening] = useState(false);
   const [isSpeechSupported, setIsSpeechSupported] = useState(true);
   const [isTyping, setIsTyping] = useState(false);
-  const setCurrentAiActivity = (_val: any) => {};
+  const [currentAiActivity, setCurrentAiActivity] = useState<'thinking' | 'searching' | 'writing_code' | 'analyzing_image' | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [statusTool, setStatusTool] = useState<string>('');
   const [streamingText, setStreamingText] = useState<string>('');
@@ -618,6 +618,12 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
   }, []);
 
   const scrollRafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    };
+  }, []);
 
   const scrollToBottom = useCallback((force = false) => {
     if (userHasScrolled && !force) return;
@@ -2065,14 +2071,14 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
                 <img src="/logo.png" alt="Nexara AI" className="w-full h-full object-contain drop-shadow-2xl" />
               </div>
             </motion.div>
-            <motion.h2 
+            <motion.h1 
               initial={{ y: 15, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.3, duration: 0.5 }}
               className="text-3xl sm:text-5xl font-display font-bold mb-2 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"
             >
               {language === 'bn' ? 'আমি নেক্সারা এআই' : 'I am Nexara AI'}
-            </motion.h2>
+            </motion.h1>
             <motion.p
               initial={{ y: 15, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
@@ -2261,9 +2267,9 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
                   ) : null}
 
                   {/* AI Working / Thinking Waveform Indicator */}
-                  {isAiWorking && (
+                  {(isAiWorking || (isTyping && statusMessage)) && (
                     <div className="py-2" role="status">
-                      <WaveformIndicator label={language === 'bn' ? 'নেক্সারা এআই চিন্তা করছে...' : 'Thinking...'} />
+                      <WaveformIndicator label={statusMessage || (language === 'bn' ? 'নেক্সারা এআই চিন্তা করছে...' : 'Thinking...')} />
                     </div>
                   )}
 

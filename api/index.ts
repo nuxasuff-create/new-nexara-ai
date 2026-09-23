@@ -8,15 +8,13 @@ import Groq from "groq-sdk";
 dotenv.config({ override: true });
 
 // Dedicated Groq configuration with rotational key pool for ultra-fast text/chat/writing tasks
-export const USER_GROQ_KEY_1 = "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";
-export const USER_GROQ_KEY_2 = "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";
-
 const RAW_GROQ_KEYS = [
-  USER_GROQ_KEY_1,
-  USER_GROQ_KEY_2,
   process.env.GROQ_API_KEY,
   process.env.GROQ_API_KEY_1,
-  process.env.GROQ_API_KEY_2
+  process.env.GROQ_API_KEY_2,
+  process.env.GROQ_API_KEY_3,
+  process.env.GROQ_API_KEY_4,
+  process.env.GROQ_API_KEY_5
 ];
 
 export const GROQ_API_KEYS = Array.from(
@@ -60,19 +58,24 @@ function getGroqClient(customKey?: string): Groq | null {
 }
 
 // -------------------------------------------------------------------------
-// Gemini Key Pool - Exclusively the 2 specified keys with automatic failover rotation
-// As requested: gemini api key oi 2 tai hoba
-// Key 1: AQ.Ab8RN6JwucOkP7Dev1kQB87wCm81DJtDMW0uBbjHRo9HUd-21g
-// Key 2: AQ.Ab8RN6K-ONOac8RMJip7C_MZgvrJBoHGYHdMEZdWQO-NvFxRMw
+// Gemini Key Pool - Auto-detecting keys from environment variables
 // -------------------------------------------------------------------------
-export const USER_GEMINI_KEY_1 = "AQ.Ab8RN6JwucOkP7Dev1kQB87wCm81DJtDMW0uBbjHRo9HUd-21g";
-export const USER_GEMINI_KEY_2 = "AQ.Ab8RN6K-ONOac8RMJip7C_MZgvrJBoHGYHdMEZdWQO-NvFxRMw";
-
-// The Gemini key pool consists exclusively of these 2 keys
-export const GEMINI_API_KEYS: string[] = [
-  USER_GEMINI_KEY_1,
-  USER_GEMINI_KEY_2
+const RAW_GEMINI_KEYS = [
+  process.env.GEMINI_API_KEY,
+  process.env.GEMINI_API_KEY_1,
+  process.env.GEMINI_API_KEY_2,
+  process.env.GEMINI_API_KEY_3,
+  process.env.GEMINI_API_KEY_4,
+  process.env.GEMINI_API_KEY_5,
+  process.env.GEMINI_API_KEY_6
 ];
+
+// The Gemini key pool consists of detected keys
+export const GEMINI_API_KEYS: string[] = Array.from(
+  new Set(
+    RAW_GEMINI_KEYS.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
+  )
+);
 
 let currentGeminiKeyIndex = 0;
 
@@ -347,7 +350,7 @@ export async function callGeminiSearchGrounding(
       }
     };
 
-    for (const model of ["gemini-3.6-flash", "gemini-3.5-flash"]) {
+    for (const model of ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"]) {
       try {
         if (onChunk) {
           const responseStream = await ai.models.generateContentStream({
@@ -477,7 +480,7 @@ export async function callGeminiChatWithPool(
     config.tools = [{ googleSearch: {} }];
   }
 
-  const modelsToTry = ["gemini-3.6-flash", "gemini-3.5-flash"];
+  const modelsToTry = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
   let lastError: any = null;
 
   for (let attempt = 0; attempt < totalAttempts; attempt++) {
@@ -1114,6 +1117,7 @@ GLOBAL LANGUAGE & ACCURACY MANDATES:
 3. Output Integrity: Ensure all structural elements, bullet points, code blocks, and plain text formatting are clean, visually aligned, and highly readable without encoding errors.
 4. Factual Accuracy & Historical Precision: Always cross-check historical, geographical, and cultural facts before generating responses. Never hallucinate or produce incorrect historical references (e.g., ensure national song origins, creators, national symbols, and history are 100% accurate).
 5. User & Creator Name Consistency: Always refer to the user and creator (Pretom Biswas) by their exact original name as provided during setup. NEVER translate, transliterate, or change the script/spelling of the user's name or creator's name (e.g., maintain English letters if originally provided in English) regardless of the response language.
+6. Uncertainty & Honesty Mandate: If you are not 100% certain about a specific date, exact number, or specific name, NEVER state it with absolute confidence or make false assumptions. Express uncertainty honestly in the user's language (e.g., in Bengali: "আমার মনে হয়...", "এই specific তথ্যটা নিয়ে আমি নিশ্চিত না", or in English: "I am not completely certain about this specific date/detail").
 
 CODE & ARTIFACTS RULE:
 - When writing code, scripts, or multi-file applications, place all code inside fenced markdown code blocks with proper language tags and file names (e.g., \`\`\`tsx filename="App.tsx" or \`\`\`python script.py). Keep conversational text concise and let code blocks handle implementation details.

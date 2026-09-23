@@ -6,6 +6,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { languages, Language } from '../lib/i18n';
 import { Mail, Lock, AlertCircle, ArrowRight, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import SEOHead from '../components/SEOHead';
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
 
@@ -169,6 +170,7 @@ export default function LoginScreen() {
 
   return (
     <div className="relative min-h-[100dvh] flex items-center justify-center bg-[var(--bg)] text-[var(--text)] overflow-hidden p-4 font-sans">
+      <SEOHead screenKey="login" />
       {/* Modern ambient background */}
       <div className="absolute inset-0 w-full h-full z-0 overflow-hidden">
         <div 
