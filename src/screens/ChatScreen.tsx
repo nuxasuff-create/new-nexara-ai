@@ -1160,8 +1160,9 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
     setSelectedImageNames([]);
   };
 
-  const processImageFiles = (files: File[]) => {
-    const validFiles = files.filter(file => file.type.match(/image\/(jpeg|jpg|png|webp|gif)/));
+  const processImageFiles = (files: File[] | FileList) => {
+    const filesArray = Array.isArray(files) ? files : Array.from(files);
+    const validFiles = filesArray.filter(file => file.type.match(/image\/(jpeg|jpg|png|webp|gif)/));
     if (validFiles.length === 0) {
       alert(language === 'bn' ? 'সাপোর্টেড ফরম্যাট: JPG, PNG, WEBP, GIF ছবি যোগ করুন।' : 'Unsupported image format. Please upload JPG, PNG, WEBP, or GIF.');
       return;

@@ -2,194 +2,88 @@
 import express from "express";
 import dotenv from "dotenv";
 import * as cheerio from "cheerio";
-import { GoogleGenAI } from "@google/genai";
-import Groq from "groq-sdk";
+import OpenAI from "openai";
 
 dotenv.config({ override: true });
 
-// Dedicated Groq configuration with rotational key pool for ultra-fast text/chat/writing tasks
-const RAW_GROQ_KEYS = [
-  process.env.GROQ_API_KEY,
-  process.env.GROQ_API_KEY_1,
-  process.env.GROQ_API_KEY_2,
-  process.env.GROQ_API_KEY_3,
-  process.env.GROQ_API_KEY_4,
-  process.env.GROQ_API_KEY_5
+// xKiro Key Pool for reliable access to Qwen 3.5 models
+const RAW_XKIRO_KEYS = [
+  process.env.XKIRO_API_KEY,
+  process.env.XKIRO_API_KEY_1
 ];
 
-export const GROQ_API_KEYS = Array.from(
+export const XKIRO_API_KEYS = Array.from(
   new Set(
-    RAW_GROQ_KEYS.filter((k): k is string => typeof k === 'string' && k.trim().startsWith("gsk_"))
+    RAW_XKIRO_KEYS.filter((k): k is string => 
+      typeof k === 'string' && 
+      k.trim().length > 10 && 
+      !k.startsWith("gsk_") // Strictly exclude Groq keys from xKiro pool
+    )
   )
 );
 
-let currentGroqKeyIndex = 0;
+let currentXkiroKeyIndex = 0;
 
-export function getActiveGroqKey(customKey?: string): string {
+export function getActiveXkiroKey(customKey?: string): string {
+  // If customKey is provided but it's a Groq key, don't use it for xKiro
   if (customKey && customKey.startsWith("gsk_")) {
-    return customKey;
+    console.warn(`[xKiro] Received Groq key (${customKey.substring(0, 8)}...) for xKiro engine. Falling back to pool.`);
+    return getActiveXkiroKey(); // Recursive call without customKey to use pool
   }
-  if (GROQ_API_KEYS.length === 0) return "";
-  return GROQ_API_KEYS[currentGroqKeyIndex % GROQ_API_KEYS.length];
+  if (customKey && customKey.length > 5) return customKey;
+  if (XKIRO_API_KEYS.length === 0) return "";
+  return XKIRO_API_KEYS[currentXkiroKeyIndex % XKIRO_API_KEYS.length];
 }
 
-export function rotateToNextGroqKey(): string {
-  if (GROQ_API_KEYS.length <= 1) {
-    return getActiveGroqKey();
-  }
-  const prevIndex = currentGroqKeyIndex;
-  currentGroqKeyIndex = (currentGroqKeyIndex + 1) % GROQ_API_KEYS.length;
-  console.log(
-    `[Groq Key Pool Failover] Groq Key #${prevIndex + 1} experienced an issue. Auto-switching to Groq Key #${currentGroqKeyIndex + 1}...`
-  );
-  return GROQ_API_KEYS[currentGroqKeyIndex];
+export function rotateToNextXkiroKey(): string {
+  if (XKIRO_API_KEYS.length <= 1) return getActiveXkiroKey();
+  currentXkiroKeyIndex = (currentXkiroKeyIndex + 1) % XKIRO_API_KEYS.length;
+  console.log(`[xKiro Key Pool] Rotating to Key #${currentXkiroKeyIndex + 1}...`);
+  return getActiveXkiroKey();
 }
-
-const GROQ_API_KEY = GROQ_API_KEYS[0] || "";
-let groqClient: Groq | null = null;
-
-function getGroqClient(customKey?: string): Groq | null {
-  const keyToUse = getActiveGroqKey(customKey);
-  if (!keyToUse) return null;
-  if (!customKey && groqClient) return groqClient;
-  const client = new Groq({ apiKey: keyToUse });
-  if (!customKey) groqClient = client;
-  return client;
-}
-
-// -------------------------------------------------------------------------
-// Gemini Key Pool - Auto-detecting keys from environment variables
-// -------------------------------------------------------------------------
-const RAW_GEMINI_KEYS = [
-  process.env.GEMINI_API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4,
-  process.env.GEMINI_API_KEY_5,
-  process.env.GEMINI_API_KEY_6
-];
-
-// The Gemini key pool consists of detected keys
-export const GEMINI_API_KEYS: string[] = Array.from(
-  new Set(
-    RAW_GEMINI_KEYS.filter((k): k is string => typeof k === 'string' && k.trim().length > 0)
-  )
-);
-
-let currentGeminiKeyIndex = 0;
-
-export function getActiveGeminiKey(customKey?: string): string {
-  if (customKey && (customKey.startsWith("AQ.") || customKey.startsWith("AIza"))) {
-    return customKey;
-  }
-  if (GEMINI_API_KEYS.length === 0) return "";
-  return GEMINI_API_KEYS[currentGeminiKeyIndex % GEMINI_API_KEYS.length];
-}
-
-export function rotateToNextGeminiKey(): string {
-  if (GEMINI_API_KEYS.length <= 1) {
-    return getActiveGeminiKey();
-  }
-  const prevIndex = currentGeminiKeyIndex;
-  currentGeminiKeyIndex = (currentGeminiKeyIndex + 1) % GEMINI_API_KEYS.length;
-  console.log(
-    `[Gemini Key Pool Failover] Gemini Key #${prevIndex + 1} experienced an issue. Auto-switching to Gemini Key #${currentGeminiKeyIndex + 1}...`
-  );
-  return GEMINI_API_KEYS[currentGeminiKeyIndex];
-}
-
-const RAW_BACKEND_KEYS = [
-  process.env.VITE_OPENROUTER_API_KEY_1 || process.env.VITE_OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY,
-  process.env.VITE_OPENROUTER_API_KEY_2,
-  process.env.VITE_OPENROUTER_API_KEY_3,
-  process.env.VITE_OPENROUTER_API_KEY_4
-];
-
-// Filter out empty or unconfigured strings so only valid active keys are stored in pool
-const OPENROUTER_API_KEYS = RAW_BACKEND_KEYS.filter(
-  (key): key is string => typeof key === 'string' && key.trim().length > 0
-);
-
-let currentKeyIndex = 0;
-
-function getActiveKey(customKey?: string): string {
-  if (customKey && customKey.startsWith("sk-or-")) {
-    return customKey;
-  }
-  if (OPENROUTER_API_KEYS.length === 0) return "";
-  return OPENROUTER_API_KEYS[currentKeyIndex % OPENROUTER_API_KEYS.length];
-}
-
-function rotateToNextKey(): string {
-  if (OPENROUTER_API_KEYS.length <= 1) {
-    return getActiveKey();
-  }
-  const prevIndex = currentKeyIndex;
-  currentKeyIndex = (currentKeyIndex + 1) % OPENROUTER_API_KEYS.length;
-  console.log(
-    `[Nexara Failover Engine] Key #${prevIndex + 1} exhausted. Auto-switching to Key #${currentKeyIndex + 1}...`
-  );
-  return OPENROUTER_API_KEYS[currentKeyIndex];
-}
-
-const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
-
-const OPENROUTER_FREE_MODELS = [
-  "openrouter/free",
-  "deepseek/deepseek-r1:free",
-  "deepseek/deepseek-r1-distill-llama-70b:free",
-  "google/gemini-2.0-flash-lite-preview-02-05:free",
-  "meta-llama/llama-3.1-8b-instruct:free",
-  "qwen/qwen-2.5-coder-32b-instruct:free",
-  "mistralai/mistral-small-24b-instruct-2501:free"
-];
 
 export function parseApiError(err: any): string {
   if (!err) return "An unknown error occurred.";
 
+  let msg = "";
   if (typeof err === "string") {
-    const trimmed = err.trim();
-    if (trimmed === "[object Object]") return "An unexpected API error occurred.";
-    if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    msg = err.trim();
+  } else if (typeof err === "object") {
+    // Handle nested error objects from various SDKs
+    if (err.message && typeof err.message === "string") msg = err.message;
+    else if (err.error && typeof err.error === "string") msg = err.error;
+    else if (err.error && typeof err.error === "object") {
+       if (err.error.message) msg = err.error.message;
+       else msg = JSON.stringify(err.error);
+    }
+    else if (err.status && err.status === "PERMISSION_DENIED") msg = "Permission Denied: Your API key does not have access to this project or model.";
+    else if (err.status && err.status === "UNAUTHENTICATED") msg = "Unauthenticated: Your API key is invalid or has expired.";
+    else {
       try {
-        const parsed = JSON.parse(trimmed);
-        return parseApiError(parsed);
+        msg = JSON.stringify(err);
       } catch {
-        return trimmed;
+        msg = String(err);
       }
     }
-    return trimmed;
   }
 
-  if (typeof err === "object") {
-    if (err.error) {
-      return parseApiError(err.error);
-    }
-    if (typeof err.message === "string" && err.message && err.message !== "[object Object]") {
-      return err.message;
-    }
-    if (typeof err.message === "object" && err.message) {
-      return parseApiError(err.message);
-    }
-    if (typeof err.detail === "string") {
-      return err.detail;
-    }
-    if (typeof err.msg === "string") {
-      return err.msg;
-    }
+  // Deep parse: if the resulting message is itself a JSON string (common in Gemini SDK), parse it recursively
+  if (typeof msg === "string" && (msg.trim().startsWith("{") || msg.trim().startsWith("["))) {
     try {
-      const str = JSON.stringify(err);
-      if (str && str !== "{}" && str !== "[object Object]") {
-        return str;
-      }
+      const parsed = JSON.parse(msg);
+      return parseApiError(parsed);
     } catch {
-      // Fallback
+      // Not valid JSON, keep original msg
     }
   }
 
-  const fallback = String(err);
-  return fallback !== "[object Object]" ? fallback : "An unexpected API error occurred.";
+  if (msg === "[object Object]") return "An unexpected API error occurred.";
+  
+  // Specific cleanups for common verbose errors
+  if (msg.includes("Your project has been denied access")) return "Access Denied: Your Google Cloud project is restricted or the Generative Language API is not enabled for this key.";
+  if (msg.includes("Request had invalid authentication credentials")) return "Invalid Key: The provided API key is either incorrect, expired, or has the wrong permissions.";
+  
+  return msg || "An unknown error occurred.";
 }
 
 function shouldTriggerWebSearch(userQuery: string, explicitSearchSetting?: boolean): boolean {
@@ -234,340 +128,221 @@ function shouldTriggerWebSearch(userQuery: string, explicitSearchSetting?: boole
   return false;
 }
 
-export interface GroundingSource {
-  title: string;
-  uri: string;
-}
-
-export interface GroundingResult {
-  text: string;
-  sources: GroundingSource[];
-  searchQueries: string[];
-}
-
-// Dedicated Search Grounding execution using Gemini key pool with googleSearch tool
-export async function callGeminiSearchGrounding(
+/**
+ * Executes high-performance image/vision analysis using xKiro's Qwen models.
+ * Prioritizes speed and accuracy for multimodal tasks.
+ */
+async function callXkiroVision(
   messages: any[],
   temperature: number = 0.7,
-  onChunk?: (chunk: string) => void,
-  onStatus?: (status: string, tool?: string) => void,
-  onGrounding?: (metadata: { sources: GroundingSource[]; searchQueries: string[] }) => void
-): Promise<GroundingResult> {
-  const poolSize = GEMINI_API_KEYS.length;
-  if (poolSize === 0) {
-    throw new Error("No Gemini API keys are configured in the key pool.");
+  customKey?: string,
+  onChunk?: (chunk: string) => void
+): Promise<string> {
+  // Validate custom key prefix
+  const validatedCustomKey = (customKey && !customKey.startsWith("gsk_")) ? customKey : undefined;
+  const keysToTry = validatedCustomKey ? [validatedCustomKey] : XKIRO_API_KEYS;
+  let lastErr: any = null;
+
+  if (keysToTry.length === 0) {
+    throw new Error("No valid xKiro API keys found. Please check your environment variables.");
   }
 
-  const systemMessage = messages.find((m: any) => m.role === "system")?.content || "";
-  let chatMessages = messages
-    .filter((m: any) => m.role !== "system")
-    .map((m: any) => {
-      const role = m.role === "assistant" ? "model" : "user";
-      let parts: any[] = [];
+  for (const apiKey of keysToTry) {
+    const client = new OpenAI({
+      baseURL: "https://api.xkiro.com/v1",
+      apiKey: apiKey,
+      defaultHeaders: {
+        "ClientApiKey": apiKey
+      }
+    });
+
+    // Model fallback chain for xKiro Vision
+    const xKiroModels = [
+      "qwen/qwen3.8-omni-flash",
+      "qwen/qwen2.5-vl-72b-instruct",
+      "qwen/qwen-vl-plus",
+      "qwen/qwen2-vl-7b-instruct"
+    ];
+
+    // Convert messages to OpenAI vision format
+    const openaiMessages = messages.map(m => {
+      const role = (m.role === "assistant" || m.role === "system" || m.role === "user") ? m.role : "user";
       if (Array.isArray(m.content)) {
-        parts = m.content.map((c: any) => {
-          if (c.type === "text") return { text: c.text };
-          if (c.type === "image_url" && typeof c.image_url?.url === "string") {
-            const match = c.image_url.url.match(/^data:(image\/\w+);base64,(.+)$/);
-            if (match) return { inlineData: { mimeType: match[1], data: match[2] } };
-          }
-          return { text: "" };
-        });
-      } else {
-        parts = [{ text: typeof m.content === "string" ? m.content : "" }];
+        return {
+          role,
+          content: m.content.map((c: any) => {
+            if (c.type === "image_url") {
+              return {
+                type: "image_url",
+                image_url: {
+                  url: c.image_url.url
+                }
+              };
+            }
+            if (c.type === "text") {
+              return { type: "text", text: c.text };
+            }
+            return c;
+          })
+        };
       }
-      return { role, parts };
+      return { role, content: typeof m.content === "string" ? m.content : "" };
     });
 
-  if (chatMessages.length === 0) {
-    chatMessages = [{ role: "user", parts: [{ text: "Hello" }] }];
-  } else if (chatMessages[0].role === "model") {
-    chatMessages.unshift({ role: "user", parts: [{ text: "Continue" }] });
-  }
-
-  const config: any = {
-    temperature,
-    tools: [{ googleSearch: {} }]
-  };
-  if (systemMessage) {
-    config.systemInstruction = systemMessage;
-  }
-
-  if (onStatus) {
-    onStatus("Searching the web with Google Search...", "web_search");
-  }
-
-  let lastError: any = null;
-
-  for (let attempt = 0; attempt < poolSize; attempt++) {
-    const activeKey = getActiveGeminiKey();
-    if (!activeKey) {
-      rotateToNextGeminiKey();
-      continue;
-    }
-
-    const ai = new GoogleGenAI({
-      apiKey: activeKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
-        }
-      }
-    });
-
-    const collectedSources: GroundingSource[] = [];
-    const collectedQueries: string[] = [];
-    const seenUris = new Set<string>();
-
-    const extractGrounding = (candidate: any) => {
-      const meta = candidate?.groundingMetadata;
-      if (!meta) return;
-
-      if (Array.isArray(meta.webSearchQueries)) {
-        for (const q of meta.webSearchQueries) {
-          if (typeof q === "string" && !collectedQueries.includes(q)) {
-            collectedQueries.push(q);
-          }
-        }
-      }
-
-      if (Array.isArray(meta.groundingChunks)) {
-        for (const chunk of meta.groundingChunks) {
-          const uri = chunk.web?.uri || chunk.maps?.uri;
-          const title = chunk.web?.title || chunk.maps?.title || "Web Source";
-          if (uri && !seenUris.has(uri)) {
-            seenUris.add(uri);
-            collectedSources.push({ title, uri });
-          }
-        }
-      }
-
-      if (onGrounding && (collectedSources.length > 0 || collectedQueries.length > 0)) {
-        onGrounding({
-          sources: [...collectedSources],
-          searchQueries: [...collectedQueries]
-        });
-      }
-    };
-
-    for (const model of ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"]) {
+    for (const model of xKiroModels) {
       try {
+        console.log(`[xKiro Vision] Attempting ${model} with key ${apiKey.substring(0, 10)}...`);
+        
         if (onChunk) {
-          const responseStream = await ai.models.generateContentStream({
+          const stream = await client.chat.completions.create({
             model,
-            contents: chatMessages,
-            config
+            messages: openaiMessages as any,
+            temperature,
+            max_tokens: 2048,
+            stream: true,
           });
 
           let accumulatedText = "";
-          let emittedLength = 0;
-
-          for await (const chunk of responseStream) {
-            if (chunk.candidates?.[0]) {
-              extractGrounding(chunk.candidates[0]);
-            }
-            if (chunk.text) {
-              accumulatedText += chunk.text;
-              const sanitizedSoFar = sanitizeResponseText(accumulatedText);
-              if (sanitizedSoFar.length > emittedLength) {
-                const chunkToEmit = sanitizedSoFar.slice(emittedLength);
-                emittedLength = sanitizedSoFar.length;
-                onChunk(chunkToEmit);
-              }
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || "";
+            if (content) {
+              accumulatedText += content;
+              onChunk(content);
             }
           }
-
-          return {
-            text: sanitizeResponseText(accumulatedText),
-            sources: collectedSources,
-            searchQueries: collectedQueries
-          };
+          return accumulatedText;
         } else {
-          const response = await ai.models.generateContent({
+          const response = await client.chat.completions.create({
             model,
-            contents: chatMessages,
-            config
+            messages: openaiMessages as any,
+            temperature,
+            max_tokens: 2048,
           });
-
-          if (response.candidates?.[0]) {
-            extractGrounding(response.candidates[0]);
-          }
-
-          return {
-            text: sanitizeResponseText(response.text || ""),
-            sources: collectedSources,
-            searchQueries: collectedQueries
-          };
+          return response.choices[0].message.content || "";
         }
       } catch (err: any) {
-        lastError = err;
-        const msg = String(err?.message || err);
-        console.warn(`[Gemini Search Grounding Pool] Key #${currentGeminiKeyIndex + 1} with model ${model} failed:`, msg);
-        if (
-          msg.includes("403") ||
-          msg.includes("PERMISSION_DENIED") ||
-          msg.includes("429") ||
-          msg.includes("RESOURCE_EXHAUSTED") ||
-          msg.includes("quota")
-        ) {
-          break;
+        lastErr = err;
+        const msg = err.message || String(err);
+        console.warn(`[xKiro Vision] Model ${model} failed:`, msg);
+        
+        if (msg.includes("401") || msg.includes("Unauthorized") || msg.includes("ClientApiKey")) {
+          break; // Try next key
         }
       }
     }
-
-    rotateToNextGeminiKey();
+    if (!customKey) rotateToNextXkiroKey();
   }
-
-  throw lastError || new Error("All Gemini search grounding keys in pool exhausted.");
+  throw lastErr || new Error("All xKiro Vision models and keys failed.");
 }
 
 /**
- * Executes chat, reasoning, writing, or image analysis tasks using the Gemini Key Pool (1-6).
- * Follows the architecture diagram:
- * - Image request -> Gemini key pool (1-6) (Rotates on failure)
- * - Text request -> Falls back to Gemini key pool on Groq error/rate limit (Rotates on failure)
+ * Executes chat, reasoning, writing, or image analysis tasks using xKiro's primary model.
+ * Primary Model: qwen/qwen3.5-plus:free (Multimodal, high performance)
+ * Fallback: xKiro Vision (Qwen VL)
  */
-export async function callGeminiChatWithPool(
+async function callXkiroPrimary(
   messages: any[],
   temperature: number = 0.7,
   customKey?: string,
   onChunk?: (chunk: string) => void,
-  onStatus?: (status: string, tool?: string) => void,
-  enableWebSearch: boolean = false
+  onStatus?: (status: string, tool?: string) => void
 ): Promise<string> {
-  const poolSize = GEMINI_API_KEYS.length;
-  const hasCustomKey = !!(customKey && (customKey.startsWith("AQ.") || customKey.startsWith("AIza")));
-  const totalAttempts = hasCustomKey ? poolSize + 1 : poolSize;
+  // Validate custom key prefix
+  const validatedCustomKey = (customKey && !customKey.startsWith("gsk_")) ? customKey : undefined;
+  const keysToTry = validatedCustomKey ? [validatedCustomKey] : XKIRO_API_KEYS;
+  let lastErr: any = null;
 
-  if (poolSize === 0 && !hasCustomKey) {
-    throw new Error("No Gemini API keys available in the key pool.");
+  if (keysToTry.length === 0) {
+    throw new Error("No valid xKiro API keys found. Please check your environment variables.");
   }
 
-  const systemMessage = messages.find((m: any) => m.role === "system")?.content || "";
-  let chatMessages = messages
-    .filter((m: any) => m.role !== "system")
-    .map((m: any) => {
-      const role = m.role === "assistant" ? "model" : "user";
-      let parts: any[] = [];
+  for (const apiKey of keysToTry) {
+    const client = new OpenAI({
+      baseURL: "https://api.xkiro.com/v1",
+      apiKey: apiKey,
+      defaultHeaders: {
+        "ClientApiKey": apiKey
+      }
+    });
+
+    const primaryModels = [
+      "qwen/qwen3.5-plus:free",
+      "qwen/qwen2.5-72b-instruct",
+      "qwen/qwen2.5-32b-instruct",
+      "gpt-4o-mini" // Some xKiro proxies have gpt-4o-mini as fallback
+    ];
+    
+    // Format messages for OpenAI compatibility
+    const openaiMessages = messages.map(m => {
+      const role = (m.role === "assistant" || m.role === "system" || m.role === "user") ? m.role : "user";
       if (Array.isArray(m.content)) {
-        parts = m.content.map((c: any) => {
-          if (c.type === "text") return { text: c.text };
-          if (c.type === "image_url" && typeof c.image_url?.url === "string") {
-            const match = c.image_url.url.match(/^data:(image\/\w+);base64,(.+)$/);
-            if (match) return { inlineData: { mimeType: match[1], data: match[2] } };
-          }
-          return { text: "" };
-        });
-      } else {
-        parts = [{ text: typeof m.content === "string" ? m.content : "" }];
+        return {
+          role,
+          content: m.content.map((c: any) => {
+            if (c.type === "image_url") {
+              return {
+                type: "image_url",
+                image_url: { url: c.image_url.url }
+              };
+            }
+            if (c.type === "text") {
+              return { type: "text", text: c.text };
+            }
+            return c;
+          })
+        };
       }
-      return { role, parts };
+      return { role, content: typeof m.content === "string" ? m.content : "" };
     });
 
-  if (chatMessages.length === 0) {
-    chatMessages = [{ role: "user", parts: [{ text: "Hello" }] }];
-  } else if (chatMessages[0].role === "model") {
-    chatMessages.unshift({ role: "user", parts: [{ text: "Continue" }] });
-  }
-
-  const config: any = {
-    temperature: temperature !== undefined ? temperature : 0.7
-  };
-  if (systemMessage) {
-    config.systemInstruction = systemMessage;
-  }
-  if (enableWebSearch) {
-    config.tools = [{ googleSearch: {} }];
-  }
-
-  const modelsToTry = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
-  let lastError: any = null;
-
-  for (let attempt = 0; attempt < totalAttempts; attempt++) {
-    let activeKey: string;
-    let keyLabel: string;
-
-    if (attempt === 0 && hasCustomKey) {
-      activeKey = customKey!;
-      keyLabel = "User Custom Gemini Key";
-    } else {
-      activeKey = getActiveGeminiKey();
-      keyLabel = `Gemini Pool Key #${currentGeminiKeyIndex + 1}`;
-    }
-
-    if (!activeKey) {
-      rotateToNextGeminiKey();
-      continue;
-    }
-
-    const ai = new GoogleGenAI({
-      apiKey: activeKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build'
-        }
-      }
-    });
-
-    for (const model of modelsToTry) {
+    for (const model of primaryModels) {
       try {
-        console.log(`[Gemini Key Pool | ${keyLabel}] Executing model: ${model}`);
+        console.log(`[xKiro Primary] Attempting ${model} with key ${apiKey.substring(0, 10)}...`);
         if (onStatus) {
-          onStatus("Nexara AI is thinking (Gemini)...", "thinking");
+          onStatus(process.env.LANGUAGE === 'bn' ? "নেক্সারা এআই (Qwen 3.5) ভাবছে..." : "Nexara AI (Qwen 3.5) is thinking...", "thinking");
         }
 
         if (onChunk) {
-          const responseStream = await ai.models.generateContentStream({
+          const stream = await client.chat.completions.create({
             model,
-            contents: chatMessages,
-            config
+            messages: openaiMessages as any,
+            temperature,
+            max_tokens: 4096,
+            stream: true,
           });
 
           let accumulatedText = "";
-          let emittedLength = 0;
-
-          for await (const chunk of responseStream) {
-            if (chunk.text) {
-              accumulatedText += chunk.text;
-              const sanitizedSoFar = sanitizeResponseText(accumulatedText);
-              if (sanitizedSoFar.length > emittedLength) {
-                const chunkToEmit = sanitizedSoFar.slice(emittedLength);
-                emittedLength = sanitizedSoFar.length;
-                onChunk(chunkToEmit);
-              }
+          for await (const chunk of stream) {
+            const content = chunk.choices[0]?.delta?.content || "";
+            if (content) {
+              accumulatedText += content;
+              onChunk(content);
             }
           }
-          return sanitizeResponseText(accumulatedText);
+          return accumulatedText;
         } else {
-          const response = await ai.models.generateContent({
+          const response = await client.chat.completions.create({
             model,
-            contents: chatMessages,
-            config
+            messages: openaiMessages as any,
+            temperature,
+            max_tokens: 4096,
           });
-          return sanitizeResponseText(response.text || "");
+          return response.choices[0].message.content || "";
         }
       } catch (err: any) {
-        lastError = err;
-        const msg = String(err?.message || err);
-        console.warn(`[Gemini Key Pool | ${keyLabel}] Model ${model} failed:`, msg);
-        if (
-          msg.includes("403") ||
-          msg.includes("PERMISSION_DENIED") ||
-          msg.includes("429") ||
-          msg.includes("RESOURCE_EXHAUSTED") ||
-          msg.includes("quota") ||
-          msg.includes("denied access") ||
-          msg.includes("API key not valid")
-        ) {
-          break;
+        lastErr = err;
+        const msg = err.message || String(err);
+        console.warn(`[xKiro Primary] Model ${model} failed:`, msg);
+        
+        if (msg.includes("401") || msg.includes("Unauthorized") || msg.includes("ClientApiKey")) {
+          break; // Try next key
         }
       }
     }
-
-    rotateToNextGeminiKey();
+    if (!customKey) rotateToNextXkiroKey();
   }
 
-  throw lastError || new Error("All Gemini API keys in rotational pool failed.");
+  throw lastErr || new Error("All xKiro primary models and keys failed.");
 }
 
 function sanitizeResponseText(text: string): string {
@@ -581,371 +356,6 @@ function sanitizeResponseText(text: string): string {
   sanitized = sanitized.replace(/^System Instructions:\s*/gim, '');
   sanitized = sanitized.replace(/^System:\s*/gim, '');
   return sanitized.replace(/^\s+/, '').trim();
-}
-
-/**
- * Executes high-speed text writing & conversational completions using Groq.
- * EXCLUSIVELY used for text/writing/chat tasks — NOT used for photo analysis/vision.
- */
-async function callGroqTextChat(
-  messages: any[],
-  temperature: number = 0.7,
-  customKey?: string,
-  onChunk?: (chunk: string) => void,
-  onStatus?: (status: string, tool?: string) => void
-): Promise<string> {
-  const keysToTry: string[] = [];
-  if (customKey && customKey.startsWith("gsk_")) {
-    keysToTry.push(customKey);
-  }
-  if (GROQ_API_KEYS.length > 0) {
-    const startIndex = currentGroqKeyIndex % GROQ_API_KEYS.length;
-    for (let i = 0; i < GROQ_API_KEYS.length; i++) {
-      const candidate = GROQ_API_KEYS[(startIndex + i) % GROQ_API_KEYS.length];
-      if (!keysToTry.includes(candidate)) {
-        keysToTry.push(candidate);
-      }
-    }
-  }
-
-  // Model fallback chain supported by this Groq API key - prioritizing fast models with high token allowances
-  const groqTextModels = [
-    "qwen/qwen3.8-27b",
-    "openai/gpt-oss-120b",
-    "openai/gpt-oss-20b",
-    "allam-2-7b"
-  ];
-  let lastErr: any = null;
-
-  // Format messages into clean role/content text format
-  const formattedMessages: any[] = [];
-  for (const m of messages) {
-    if (!m) continue;
-    const role = (m.role === "assistant" || m.role === "system" || m.role === "user") ? m.role : "user";
-    let textContent = "";
-    if (typeof m.content === "string") {
-      textContent = m.content;
-    } else if (Array.isArray(m.content)) {
-      textContent = m.content
-        .filter((c: any) => c && (c.type === "text" || typeof c.text === "string"))
-        .map((c: any) => c.text || "")
-        .join(" ");
-    }
-    if (textContent.trim()) {
-      formattedMessages.push({ role, content: textContent });
-    }
-  }
-
-  for (const apiKeyCandidate of keysToTry) {
-    const client = new Groq({ apiKey: apiKeyCandidate });
-    let keySucceeded = false;
-
-    for (const model of groqTextModels) {
-      try {
-        console.log(`[Groq Text Engine] Attempting Groq (${model}) with key (${apiKeyCandidate.substring(0, 10)}...)...`);
-        if (onStatus) {
-          onStatus("Nexara AI is writing with Groq...", "thinking");
-        }
-
-        // Qwen on free/on-demand tier has a strict 1,000 output tokens per minute (OTPM) limit.
-        // Cap max_tokens to 800 for Qwen to strictly prevent 429 rate limit exceeded errors.
-        const modelMaxTokens = model.includes("qwen") ? 800 : (model.includes("allam") ? 2048 : 4096);
-
-        if (onChunk) {
-          const stream = await client.chat.completions.create({
-            model,
-            messages: formattedMessages,
-            temperature,
-            max_tokens: modelMaxTokens,
-            stream: true
-          });
-
-          let fullReply = "";
-          let emittedLength = 0;
-          for await (const chunk of stream) {
-            const delta = chunk.choices[0]?.delta?.content || "";
-            if (delta) {
-              fullReply += delta;
-              const sanitized = sanitizeResponseText(fullReply);
-              if (sanitized.length > emittedLength) {
-                const chunkToEmit = sanitized.slice(emittedLength);
-                emittedLength = sanitized.length;
-                onChunk(chunkToEmit);
-              }
-            }
-          }
-          if (!fullReply || fullReply.trim().length === 0) {
-            console.warn(`[Groq Text Engine] Model ${model} returned empty content, trying next fallback model...`);
-            continue;
-          }
-          keySucceeded = true;
-          return sanitizeResponseText(fullReply);
-        } else {
-          const completion = await client.chat.completions.create({
-            model,
-            messages: formattedMessages,
-            temperature,
-            max_tokens: modelMaxTokens,
-            stream: false
-          });
-          const reply = completion.choices[0]?.message?.content || "";
-          if (!reply || reply.trim().length === 0) {
-            console.warn(`[Groq Text Engine] Model ${model} returned empty reply, trying next fallback model...`);
-            continue;
-          }
-          keySucceeded = true;
-          return sanitizeResponseText(reply);
-        }
-      } catch (err: any) {
-        lastErr = err;
-        const errMsg = err?.message || String(err);
-        const isAuthError = err?.status === 401 || errMsg.includes("Invalid API Key") || errMsg.includes("invalid_api_key");
-        const isSevereLimit = err?.status === 429 || errMsg.includes("rate_limit") || errMsg.includes("daily") || errMsg.includes("quota");
-
-        if (isAuthError) {
-          console.info(`[Groq Text Engine] Key (${apiKeyCandidate.substring(0, 10)}...) is invalid. Auto-switching to next Groq key in pool...`);
-          rotateToNextGroqKey();
-          break;
-        }
-
-        if (isSevereLimit) {
-          console.info(`[Groq Text Engine] Key (${apiKeyCandidate.substring(0, 10)}...) limit hit on model ${model}. Testing other models or auto-switching key...`);
-          continue;
-        }
-
-        console.info(`[Groq Text Engine] Model ${model} returned: ${errMsg}. Trying next fallback model...`);
-      }
-    }
-    if (keySucceeded) break;
-    // If all models on this key failed, rotate to the next key in the pool
-    rotateToNextGroqKey();
-  }
-
-  throw lastErr || new Error("Groq text completion failed");
-}
-
-async function callOpenRouter(
-  modelName: string, 
-  messages: any[], 
-  temperature: number = 0.7, 
-  customKey?: string,
-  onChunk?: (chunk: string) => void,
-  onStatus?: (status: string, tool?: string) => void,
-  enableWebSearch: boolean = false
-) {
-  const poolSize = OPENROUTER_API_KEYS.length;
-  const hasCustomKey = !!(customKey && customKey.startsWith("sk-or-"));
-  const totalKeyAttempts = hasCustomKey ? poolSize + 1 : poolSize;
-
-  if (poolSize === 0 && !hasCustomKey && GEMINI_API_KEYS.length === 0) {
-    throw new Error("Missing OpenRouter API key. Please configure API keys in environment or settings.");
-  }
-
-  const requestedModel = (!modelName || modelName === "openrouter/free") ? "openrouter/free" : modelName;
-
-  const modelsToTry = Array.from(new Set([
-    requestedModel,
-    "openrouter/free",
-    ...OPENROUTER_FREE_MODELS
-  ]));
-
-  let lastError: Error | null = null;
-  const refererUrl = process.env.APP_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "https://nexara-ai.com");
-
-  for (let keyAttempt = 0; keyAttempt < totalKeyAttempts; keyAttempt++) {
-    let activeApiKey: string;
-    let keyLabel: string;
-
-    if (keyAttempt === 0 && hasCustomKey) {
-      activeApiKey = customKey!;
-      keyLabel = "User Custom Key";
-    } else {
-      activeApiKey = getActiveKey();
-      keyLabel = `Pool Key #${currentKeyIndex + 1}`;
-    }
-
-    if (!activeApiKey) {
-      rotateToNextKey();
-      continue;
-    }
-
-    const headers: Record<string, string> = {
-      "Authorization": `Bearer ${activeApiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": refererUrl,
-      "X-Title": "Nexara AI"
-    };
-
-    let keyExhausted = false;
-
-    for (const model of modelsToTry) {
-      try {
-        console.log(`[OpenRouter Fast Stream | ${keyLabel}] Trying model: ${model} (Web Search: ${enableWebSearch})`);
-        if (onStatus) {
-          onStatus("Nexara AI is thinking...", "thinking");
-        }
-
-        const bodyPayload: any = {
-          model: model,
-          messages: messages,
-          temperature: temperature,
-          stream: true
-        };
-
-        if (enableWebSearch) {
-          bodyPayload.plugins = [{ id: "web" }];
-        }
-
-        let response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify(bodyPayload)
-        });
-
-        if (!response.ok && enableWebSearch) {
-          // If web plugin caused failure (e.g. 402 credits required or 404 plugin unsupported), retry without plugin
-          delete bodyPayload.plugins;
-          response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
-            method: "POST",
-            headers,
-            body: JSON.stringify(bodyPayload)
-          });
-        }
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          const errMsg = parseApiError(errorData) || `OpenRouter HTTP ${response.status}`;
-          lastError = new Error(errMsg);
-
-          // If model is 404 or no endpoint found, skip quietly to next model
-          if (response.status === 404) {
-            continue;
-          }
-
-          console.warn(`[OpenRouter Warning | ${keyLabel}] Model ${model} failed (${response.status}): ${errMsg}`);
-
-          const isRateLimit = response.status === 429 || 
-                              errMsg.toLowerCase().includes("rate limit") || 
-                              errMsg.toLowerCase().includes("quota") || 
-                              errMsg.toLowerCase().includes("free-models-per-day") ||
-                              errMsg.toLowerCase().includes("resource_exhausted");
-
-          if (isRateLimit) {
-            keyExhausted = true;
-            break;
-          }
-          continue;
-        }
-
-        if (!response.body) {
-          throw new Error("No stream body returned");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        let buffer = "";
-        let accumulatedText = "";
-        let emittedLength = 0;
-        let currentMode: 'thinking' | 'web_search' | 'code_gen' | 'writing' = 'thinking';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          
-          let lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith(":")) continue;
-            if (trimmed === "data: [DONE]") continue;
-
-            if (trimmed.startsWith("data: ")) {
-              try {
-                const json = JSON.parse(trimmed.slice(6));
-                if (json.error) {
-                  const streamErrMsg = parseApiError(json.error);
-                  throw new Error(streamErrMsg);
-                }
-                const delta = json.choices?.[0]?.delta?.content;
-                if (delta) {
-                  accumulatedText += delta;
-
-                  let nextMode: 'code_gen' | 'writing' = 'writing';
-                  if (accumulatedText.includes('```') || accumulatedText.includes('filename=')) {
-                    nextMode = 'code_gen';
-                  }
-
-                  if (currentMode !== nextMode) {
-                    currentMode = nextMode;
-                    if (onStatus) {
-                      if (nextMode === 'code_gen') {
-                        onStatus("Writing code...", "code_gen");
-                      } else {
-                        onStatus("Writing response...", "writing");
-                      }
-                    }
-                  }
-
-                  if (onChunk) {
-                    const sanitizedSoFar = sanitizeResponseText(accumulatedText);
-                    if (sanitizedSoFar.length > emittedLength) {
-                      const chunkToEmit = sanitizedSoFar.slice(emittedLength);
-                      emittedLength = sanitizedSoFar.length;
-                      onChunk(chunkToEmit);
-                    }
-                  }
-                }
-              } catch (e: any) {
-                if (e?.message && !e.message.includes("Unexpected token")) {
-                  throw e;
-                }
-              }
-            }
-          }
-        }
-
-        const sanitized = sanitizeResponseText(accumulatedText);
-        if (sanitized || accumulatedText) {
-          return sanitized || accumulatedText;
-        }
-      } catch (err: any) {
-        const errMsg = parseApiError(err);
-        console.warn(`[OpenRouter Stream Warning | ${keyLabel}] Exception calling ${model}:`, errMsg);
-        lastError = new Error(errMsg);
-      }
-    }
-
-    if (keyExhausted) {
-      if (keyAttempt === 0 && hasCustomKey) {
-        console.log(`[Nexara Failover Engine] Custom API key exhausted. Auto-switching to Pool Key #${currentKeyIndex + 1}...`);
-      } else {
-        rotateToNextKey();
-      }
-      continue;
-    }
-
-    if (keyAttempt < totalKeyAttempts - 1) {
-      rotateToNextKey();
-    }
-  }
-
-  // FALLBACK TO GEMINI KEY POOL (1-6) IF CONFIGURED
-  if (GEMINI_API_KEYS.length > 0 && !hasCustomKey) {
-    try {
-      console.log(`[Nexara Failover Engine] All OpenRouter keys failed or pool is empty. Falling back to Gemini Key Pool...`);
-      if (onStatus) {
-        onStatus("Nexara AI is thinking (Gemini Pool)...", "thinking");
-      }
-      return await callGeminiChatWithPool(messages, temperature, undefined, onChunk, onStatus, enableWebSearch);
-    } catch (geminiFallbackErr: any) {
-      console.warn(`[Gemini Fallback Warning] Gemini Key Pool fallback failed:`, geminiFallbackErr?.message || geminiFallbackErr);
-      throw lastError || geminiFallbackErr || new Error("All API keys and fallbacks failed.");
-    }
-  }
-
-  throw lastError || new Error("All API keys in the rotational failover pool failed consecutively.");
 }
 
 const app = express();
@@ -965,18 +375,11 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 app.get(["/api/health", "/api"], async (req, res) => {
-  const activeKey = getActiveKey();
-  const activeGeminiKey = getActiveGeminiKey();
-  const activeGroqKey = getActiveGroqKey();
   res.json({ 
     status: "ok", 
-    groqConfigured: GROQ_API_KEYS.length > 0,
-    groqKeyPoolSize: GROQ_API_KEYS.length,
-    activeGroqKeyPrefix: activeGroqKey ? activeGroqKey.substring(0, 8) : "none",
-    geminiKeyPoolSize: GEMINI_API_KEYS.length,
-    activeGeminiKeyPrefix: activeGeminiKey ? activeGeminiKey.substring(0, 8) : "none",
-    openRouterKeyPoolSize: OPENROUTER_API_KEYS.length,
-    openRouterKeyPrefix: activeKey ? activeKey.substring(0, 8) : "none"
+    xkiroConfigured: XKIRO_API_KEYS.length > 0,
+    xkiroKeyPoolSize: XKIRO_API_KEYS.length,
+    activeXkiroKeyPrefix: getActiveXkiroKey() ? getActiveXkiroKey().substring(0, 8) : "none"
   });
 });
 
@@ -1270,9 +673,7 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
     }
 
     const isStreamingRequested = req.headers.accept?.includes("text/event-stream") || req.body.stream !== false;
-    let sources: GroundingSource[] = [];
-    let searchQueries: string[] = [];
-    let executionEngine = "openrouter";
+    let executionEngine = "xkiro-primary";
 
     if (isStreamingRequested) {
       res.setHeader("Content-Type", "text/event-stream");
@@ -1280,156 +681,49 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
       res.setHeader("Connection", "keep-alive");
       res.setHeader("X-Accel-Buffering", "no");
 
-      // Primary Search Grounding Route: When search grounding is relevant/requested, use Gemini key pool with googleSearch tool
-      if (enableWebSearch && GEMINI_API_KEYS.length > 0) {
-        res.write(`data: ${JSON.stringify({ 
-          status: language === 'bn' ? "গুগল সার্চ দিয়ে সাম্প্রতিক তথ্য খোঁজা হচ্ছে..." : "Searching the web with Google Search Grounding...", 
-          tool: "web_search" 
-        })}\n\n`);
+      res.write(`data: ${JSON.stringify({ 
+        status: language === 'bn' ? "নেক্সারা এআই উত্তর তৈরি করছে (Qwen 3.5)..." : "Nexara AI is generating response (Qwen 3.5)...", 
+        tool: hasImage ? "vision" : "thinking" 
+      })}\n\n`);
 
-        try {
-          const groundingResult = await callGeminiSearchGrounding(
-            finalMessages,
-            temperature !== undefined ? temperature : 0.7,
-            (chunk) => {
-              res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
-            },
-            (status, tool) => {
-              res.write(`data: ${JSON.stringify({ status, tool })}\n\n`);
-            },
-            (metadata) => {
-              sources = metadata.sources;
-              searchQueries = metadata.searchQueries;
-              res.write(`data: ${JSON.stringify({ sources: metadata.sources, searchQueries: metadata.searchQueries })}\n\n`);
-            }
-          );
-
-          reply = groundingResult.text;
-          sources = groundingResult.sources;
-          searchQueries = groundingResult.searchQueries;
-          executionEngine = "gemini-search-grounding";
-        } catch (geminiSearchErr: any) {
-          console.warn("[Gemini Search Grounding Engine] Search grounding failed or quota hit, falling back to conversational engines:", geminiSearchErr?.message || geminiSearchErr);
-          reply = "";
-        }
-      }
-
-      if (!reply) {
-        res.write(`data: ${JSON.stringify({ status: language === 'bn' ? "নেক্সারা এআই ভাবছে..." : "Nexara AI is thinking..." })}\n\n`);
-
-        // Multi-Provider Architecture (as shown in architecture diagram):
-        // 1. Image Request -> Route directly to Gemini key pool (1-6) with automatic failure rotation
+      try {
+        reply = await callXkiroPrimary(
+          finalMessages,
+          temperature !== undefined ? temperature : 0.7,
+          apiKey,
+          (chunk) => {
+            res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+          }
+        );
+      } catch (primaryErr: any) {
+        console.warn("[xKiro Primary Error] Falling back to vision engine:", primaryErr?.message || primaryErr);
+        
         if (hasImage) {
-          if (GEMINI_API_KEYS.length > 0 || (apiKey && (apiKey.startsWith("AQ.") || apiKey.startsWith("AIza")))) {
-            try {
-              res.write(`data: ${JSON.stringify({ 
-                status: language === 'bn' ? "ছবিটি বিশ্লেষণ করা হচ্ছে..." : "Analyzing photo with Gemini Vision...", 
-                tool: "vision" 
-              })}\n\n`);
-
-              reply = await callGeminiChatWithPool(
-                finalMessages,
-                temperature !== undefined ? temperature : 0.7,
-                apiKey,
-                (chunk) => {
-                  res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
-                },
-                (status, tool) => {
-                  res.write(`data: ${JSON.stringify({ status, tool })}\n\n`);
-                },
-                false
-              );
-              executionEngine = "gemini-pool-vision";
-            } catch (geminiVisionErr: any) {
-              console.warn("[Gemini Vision Pool Error] Gemini key pool failed for image request, attempting OpenRouter pool fallback:", geminiVisionErr?.message || geminiVisionErr);
-              reply = "";
-            }
-          }
-        } else {
-          // 2. Text Request -> Groq (primary) Fast text generation
-          if (GROQ_API_KEY) {
-            try {
-              reply = await callGroqTextChat(
-                finalMessages,
-                temperature !== undefined ? temperature : 0.7,
-                apiKey,
-                (chunk) => {
-                  res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
-                },
-                (status, tool) => {
-                  res.write(`data: ${JSON.stringify({ status, tool })}\n\n`);
-                }
-              );
-              executionEngine = "groq";
-            } catch (groqErr: any) {
-              console.warn("[Groq Text Engine Error] Primary Groq engine failed (rate limit / error). Auto-shifting to Gemini key pool (1-6):", groqErr?.message || groqErr);
-              reply = "";
-            }
-          }
-
-          // 3. Fallback on Groq error / rate limit -> Gemini key pool (1-6) Rotates on failure
-          if (!reply && (GEMINI_API_KEYS.length > 0 || (apiKey && (apiKey.startsWith("AQ.") || apiKey.startsWith("AIza"))))) {
-            try {
-              reply = await callGeminiChatWithPool(
-                finalMessages,
-                temperature !== undefined ? temperature : 0.7,
-                apiKey,
-                (chunk) => {
-                  res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
-                },
-                (status, tool) => {
-                  res.write(`data: ${JSON.stringify({ status, tool })}\n\n`);
-                },
-                enableWebSearch
-              );
-              executionEngine = "gemini-pool";
-            } catch (geminiErr: any) {
-              console.warn("[Gemini Key Pool Fallback Error] Gemini pool exhausted, falling back to OpenRouter pool:", geminiErr?.message || geminiErr);
-              reply = "";
-            }
-          }
-        }
-
-        // 4. Secondary fallback: OpenRouter pool
-        if (!reply) {
           try {
-            reply = await callOpenRouter(
-              openRouterModel, 
-              finalMessages, 
-              temperature !== undefined ? temperature : 0.7, 
+            res.write(`data: ${JSON.stringify({ 
+              status: language === 'bn' ? "ছবিটি বিশ্লেষণ করা হচ্ছে (xKiro Vision)..." : "Analyzing photo with xKiro Vision...", 
+              tool: "vision" 
+            })}\n\n`);
+
+            reply = await callXkiroVision(
+              finalMessages,
+              temperature !== undefined ? temperature : 0.7,
               apiKey,
               (chunk) => {
                 res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
-              },
-              (status, tool) => {
-                res.write(`data: ${JSON.stringify({ status, tool })}\n\n`);
-              },
-              enableWebSearch
-            );
-            executionEngine = "openrouter";
-          } catch (openRouterErr: any) {
-            let cleanErr = parseApiError(openRouterErr);
-            console.warn("OpenRouter API streaming error:", cleanErr);
-
-            const isCustomKey = !!(apiKey && apiKey.startsWith("sk-or-"));
-            if (cleanErr.includes("429") || cleanErr.toLowerCase().includes("rate limit") || cleanErr.includes("free-models-per-day") || cleanErr.toLowerCase().includes("quota")) {
-              if (!isCustomKey) {
-                cleanErr = language === 'bn'
-                  ? "নেক্সারা এআই এর জন্য নির্ধারিত ফ্রি দৈনিক রিকোয়েস্ট সীমা কোটা সাময়িকভাবে শেষ হয়েছে। কিছুক্ষণ পরে আবার চেষ্টা করুন।"
-                  : "The daily free quota has been temporarily reached. Please try again shortly or configure an API Key in Settings (⚙️).";
-              } else {
-                cleanErr = language === 'bn'
-                  ? "আপনার API Key-এর রিকোয়েস্ট সীমা বা কোটা শেষ হয়ে গেছে।"
-                  : "Your custom API key rate limit or quota has been exceeded.";
               }
-            } else if (hasImage && (cleanErr.includes("401") || cleanErr.includes("User not found") || cleanErr.toLowerCase().includes("auth"))) {
-              cleanErr = language === 'bn'
-                ? "ছবি বিশ্লেষণের জন্য সক্রিয় API সংযোগ পাওয়া যায়নি। কিছুক্ষণ পর আবার চেষ্টা করুন।"
-                : "Active vision engine connection was temporarily unavailable for this photo. Please try again.";
-            }
+            );
+            executionEngine = "xkiro-vision-fallback";
+          } catch (xKiroVisionErr: any) {
+            console.error("[xKiro Vision Fallback Error] xKiro Vision failed:", xKiroVisionErr?.message || xKiroVisionErr);
+            const cleanErr = parseApiError(xKiroVisionErr);
             res.write(`data: ${JSON.stringify({ error: cleanErr })}\n\n`);
             return res.end();
           }
+        } else {
+          const cleanErr = parseApiError(primaryErr);
+          res.write(`data: ${JSON.stringify({ error: cleanErr })}\n\n`);
+          return res.end();
         }
       }
 
@@ -1449,83 +743,29 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
       }
 
       reply = sanitizeResponseText(reply);
-      res.write(`data: ${JSON.stringify({ done: true, reply, sources, searchQueries })}\n\n`);
+      res.write(`data: ${JSON.stringify({ done: true, reply })}\n\n`);
       return res.end();
     } else {
-      // Non-streaming Search Grounding
-      if (enableWebSearch && GEMINI_API_KEYS.length > 0) {
-        try {
-          const groundingResult = await callGeminiSearchGrounding(
-            finalMessages,
-            temperature !== undefined ? temperature : 0.7
-          );
-          reply = sanitizeResponseText(groundingResult.text);
-          return res.json({
-            reply,
-            sources: groundingResult.sources,
-            searchQueries: groundingResult.searchQueries
-          });
-        } catch (geminiErr: any) {
-          console.warn("[Gemini Search Grounding Non-streaming] Fallback triggered:", geminiErr?.message || geminiErr);
-          reply = "";
-        }
-      }
-
       // Non-streaming execution
-      if (hasImage) {
-        if (GEMINI_API_KEYS.length > 0 || (apiKey && (apiKey.startsWith("AQ.") || apiKey.startsWith("AIza")))) {
+      try {
+        reply = await callXkiroPrimary(
+          finalMessages,
+          temperature !== undefined ? temperature : 0.7,
+          apiKey
+        );
+      } catch (primaryErr: any) {
+        if (hasImage) {
           try {
-            reply = await callGeminiChatWithPool(
-              finalMessages,
-              temperature !== undefined ? temperature : 0.7,
-              apiKey,
-              undefined,
-              undefined,
-              false
-            );
-          } catch (geminiVisionErr: any) {
-            console.warn("[Gemini Vision Pool Error] Non-streaming Gemini pool failed for image request:", geminiVisionErr?.message || geminiVisionErr);
-            reply = "";
-          }
-        }
-      } else {
-        if (GROQ_API_KEY) {
-          try {
-            reply = await callGroqTextChat(
+            reply = await callXkiroVision(
               finalMessages,
               temperature !== undefined ? temperature : 0.7,
               apiKey
             );
-          } catch (groqErr) {
-            console.warn("[Groq Text Engine] Non-streaming primary failed. Auto-shifting to Gemini key pool:", groqErr);
-            reply = "";
+          } catch (xKiroErr: any) {
+            throw xKiroErr;
           }
-        }
-
-        if (!reply && (GEMINI_API_KEYS.length > 0 || (apiKey && (apiKey.startsWith("AQ.") || apiKey.startsWith("AIza"))))) {
-          try {
-            reply = await callGeminiChatWithPool(
-              finalMessages,
-              temperature !== undefined ? temperature : 0.7,
-              apiKey,
-              undefined,
-              undefined,
-              enableWebSearch
-            );
-          } catch (geminiErr) {
-            console.warn("[Gemini Pool] Non-streaming Gemini pool failed:", geminiErr);
-            reply = "";
-          }
-        }
-      }
-
-      if (!reply) {
-        try {
-          reply = await callOpenRouter(openRouterModel, finalMessages, temperature !== undefined ? temperature : 0.7, apiKey, undefined, undefined, enableWebSearch);
-        } catch (openRouterErr: any) {
-          const cleanErr = parseApiError(openRouterErr);
-          console.warn("OpenRouter API call failed:", cleanErr);
-          throw new Error(cleanErr);
+        } else {
+          throw primaryErr;
         }
       }
 
@@ -1543,7 +783,7 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
         }
       }
       reply = sanitizeResponseText(reply);
-      return res.json({ reply, sources, searchQueries });
+      return res.json({ reply });
     }
   } catch (error: any) {
     console.error("API Error:", error);
@@ -1603,17 +843,8 @@ RULES:
       }
     ];
 
-    let title = "";
-    if (GROQ_API_KEY) {
-      try {
-        title = await callGroqTextChat(promptMessages, 0.3, apiKey);
-      } catch {
-        // Fallback to openrouter
-      }
-    }
-    if (!title) {
-      title = await callOpenRouter("openrouter/free", promptMessages, 0.3, apiKey);
-    }
+    let title = await callXkiroPrimary(promptMessages, 0.3, apiKey);
+    
     if (title) {
       title = title.trim()
         .replace(/^["'‘“`]+|["'’”`]+$/g, '')
