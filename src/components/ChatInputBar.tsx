@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Send, Mic, Square, X, History, Plus, Globe, Image as ImageIcon } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Send, Plus, X, Image as ImageIcon, Mic, Square } from 'lucide-react';
 
 export interface ChatInputBarProps {
   onSend: (text: string) => void;
@@ -23,6 +22,9 @@ export interface ChatInputBarProps {
   cancelListening: () => void;
   voiceCommands: string[];
   voiceTranscript?: string;
+  onStopGeneration?: () => void;
+  selectedModel?: string;
+  onModelChange?: (model: string) => void;
 }
 
 function ChatInputBarComponent({
@@ -37,18 +39,14 @@ function ChatInputBarComponent({
   onAddImages,
   onRemoveImage,
   onClearImages,
-  isWebSearchActive,
-  setIsWebSearchActive,
   inputRef,
-  isSpeechSupported,
+  voiceTranscript,
   isListening,
+  isSpeechSupported,
   toggleListening,
-  cancelListening,
-  voiceCommands,
-  voiceTranscript
+  onStopGeneration
 }: ChatInputBarProps) {
   const [text, setText] = useState(initialPrompt || '');
-  const [showVoiceCommands, setShowVoiceCommands] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync initialPrompt when passed from dashboard/history
@@ -111,37 +109,26 @@ function ChatInputBarComponent({
     }
   };
 
-  const isSendDisabled = (!text.trim() && selectedImages.length === 0) || isTyping;
+  const isSendDisabled = (!text.trim() && selectedImages.length === 0);
 
   return (
-    <div className="px-4 pt-2 pb-4 md:px-8 md:pt-3 md:pb-6 bg-gradient-to-t from-[var(--bg)] via-[var(--bg)]/95 to-transparent relative z-20">
-      <div className="max-w-3xl mx-auto relative">
+    <div className="px-4 pb-8 md:px-8 md:pb-12 pb-safe bg-gradient-to-t from-[var(--bg)] via-[var(--bg)]/90 to-transparent relative z-20">
+      <div className="max-w-4xl mx-auto flex flex-col items-center">
         {/* Selected Images Preview Container */}
         {selectedImages.length > 0 && (
-          <div className="mb-2 p-2.5 bg-[var(--card)]/80 backdrop-blur-md border border-[var(--border)] rounded-2xl shadow-sm">
+          <div className="w-full mb-3 p-2.5 bg-[var(--card)]/80 backdrop-blur-md border border-[var(--border)] rounded-2xl shadow-sm">
             <div className="flex items-center justify-between mb-2 px-1">
               <span className="text-xs font-semibold text-[var(--text)] flex items-center gap-1.5">
                 <ImageIcon size={14} className="text-primary" />
                 {selectedImages.length}/5 {language === 'bn' ? 'ছবি যুক্ত' : 'Attached'}
               </span>
-              <div className="flex items-center gap-2">
-                {selectedImages.length < 5 && (
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    className="text-[11px] font-semibold text-primary hover:underline flex items-center gap-1"
-                  >
-                    <Plus size={12} /> {language === 'bn' ? 'আরও যোগ করুন' : 'Add more'}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={onClearImages}
-                  className="text-[11px] font-medium text-red-500 hover:text-red-600 hover:underline ml-2"
-                >
-                  {language === 'bn' ? 'সব মুছুন' : 'Clear all'}
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={onClearImages}
+                className="text-[11px] font-medium text-red-500 hover:text-red-600 hover:underline"
+              >
+                {language === 'bn' ? 'সব মুছুন' : 'Clear all'}
+              </button>
             </div>
             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
               {selectedImages.map((imgSrc, idx) => (
@@ -150,8 +137,7 @@ function ChatInputBarComponent({
                   <button
                     type="button"
                     onClick={() => onRemoveImage(idx)}
-                    className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-red-500 text-white rounded-full transition-colors opacity-90 group-hover:opacity-100"
-                    title={language === 'bn' ? 'ছবি সরান' : 'Remove photo'}
+                    className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-red-500 text-white rounded-full transition-colors"
                   >
                     <X size={10} />
                   </button>
@@ -166,8 +152,7 @@ function ChatInputBarComponent({
           </div>
         )}
 
-        <div className="relative flex items-center gap-2 bg-[var(--card)]/90 backdrop-blur-xl border border-[var(--border)] rounded-[24px] p-1.5 shadow-[0_8px_32px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.25)] hover:border-[var(--text-muted)]/40 focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 transition-all duration-300">
-          {/* File Attachment Input (hidden) */}
+        <div className="w-full relative flex items-center bg-[var(--card)]/90 backdrop-blur-2xl border border-[var(--border)] rounded-[28px] p-1.5 shadow-xl focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 transition-all duration-300 mb-4">
           <input
             type="file"
             ref={fileInputRef}
@@ -177,218 +162,81 @@ function ChatInputBarComponent({
             className="hidden"
           />
 
-          {/* Plus / Attachment Button */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={selectedImages.length >= 5}
-            className={`p-2 transition-all rounded-full z-10 relative flex items-center justify-center shrink-0 ${
+            className={`p-3 ml-1 rounded-full flex items-center justify-center transition-all ${
               selectedImages.length >= 5
-                ? 'text-[var(--text-muted)]/40 cursor-not-allowed opacity-50'
+                ? 'text-[var(--text-muted)] opacity-30 cursor-not-allowed'
                 : 'text-[var(--text-muted)] hover:text-primary hover:bg-primary/10'
             }`}
-            title={selectedImages.length >= 5 ? 'Maximum 5 images allowed' : 'Attach photo/image (max 5)'}
+            title="Attach images"
           >
-            <Plus size={20} strokeWidth={2} />
+            <Plus size={22} strokeWidth={2.5} />
           </button>
 
-          {/* Voice Input Button */}
-          <div className="relative flex items-center shrink-0">
-            <AnimatePresence>
-              {isListening && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10, scale: 0.9 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="absolute -top-11 left-1/2 -translate-x-1/2 bg-red-500/10 dark:bg-red-950/50 border border-red-500/30 backdrop-blur-md px-3 py-1 rounded-full flex items-center gap-2 shadow-lg z-30 pointer-events-none"
-                >
-                  <div className="flex items-center gap-0.5">
-                    <span className="w-1 h-3 bg-red-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                    <span className="w-1 h-4 bg-red-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                    <span className="w-1 h-2 bg-red-500 rounded-full animate-bounce" />
-                  </div>
-                  <span className="text-[11px] font-semibold text-red-500 whitespace-nowrap">
-                    {language === 'bn' ? 'শুনছি...' : 'Listening...'}
-                  </span>
-                </motion.div>
-              )}
-            </AnimatePresence>
+          <textarea
+            ref={inputRef}
+            value={text}
+            maxLength={4000}
+            rows={1}
+            onChange={(e) => {
+              setText(e.target.value);
+              e.target.style.height = 'auto';
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
+            }}
+            onKeyDown={handleKeyDown}
+            placeholder={isListening ? (language === 'bn' ? 'শুনছি...' : 'Listening...') : 'Ask Anything'}
+            className={`flex-1 bg-transparent border-none text-[var(--text)] py-3 px-2 focus:outline-none focus:ring-0 placeholder-[var(--text-muted)] text-[16px] resize-none overflow-y-auto leading-relaxed transition-opacity ${isListening ? 'opacity-80' : 'opacity-100'}`}
+            style={{ maxHeight: '200px' }}
+          />
 
+          {isSpeechSupported ? (
             <button
               type="button"
               onClick={toggleListening}
-              disabled={!isSpeechSupported}
-              className={`p-2 transition-all rounded-full z-10 relative flex items-center justify-center ${
-                !isSpeechSupported
-                  ? 'text-[var(--text-muted)]/40 cursor-not-allowed opacity-50'
-                  : isListening
-                  ? 'text-red-500 bg-red-500/10 ring-2 ring-red-500/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
-                  : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)]'
-              }`}
-              title={
-                !isSpeechSupported
-                  ? (language === 'bn' ? 'এই ব্রাউজারে স্পিচ রিকগনিশন সমর্থিত নয়' : 'Speech recognition not supported in this browser')
-                  : isListening
-                  ? (language === 'bn' ? 'শুনছি... (থামাতে আবার ক্লিক করুন)' : 'Listening... (click to stop)')
-                  : (language === 'bn' ? 'ভয়েস ইনপুট শুরু করুন' : 'Start voice input')
-              }
-            >
-              {isListening && (
-                <span className="absolute inset-0 rounded-full bg-red-500/30 animate-ping pointer-events-none" />
-              )}
-              {isListening ? (
-                <Square size={18} className="fill-current text-red-500" />
-              ) : (
-                <Mic size={20} strokeWidth={1.5} />
-              )}
-            </button>
-
-            {/* Voice Command History Popover */}
-            <AnimatePresence>
-              {showVoiceCommands && voiceCommands.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  className="absolute bottom-full mb-4 md:-left-8 left-0 w-64 bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-lg z-50 overflow-hidden"
-                >
-                  <div className="p-3 border-b border-[var(--border)] flex justify-between items-center bg-[var(--bg)]">
-                    <h4 className="text-sm font-medium text-[var(--text)] flex items-center gap-1.5"><History size={14} /> Voice History</h4>
-                    <button onClick={() => setShowVoiceCommands(false)} className="text-[var(--text-muted)] hover:text-[var(--text)]">
-                      <X size={14} />
-                    </button>
-                  </div>
-                  <div className="max-h-48 overflow-y-auto">
-                    {voiceCommands.map((cmd, idx) => (
-                      <button
-                        key={idx}
-                        onClick={() => {
-                          setText(cmd);
-                          setShowVoiceCommands(false);
-                          if (inputRef.current) {
-                            inputRef.current.focus();
-                          }
-                        }}
-                        className="w-full text-left px-3 py-2.5 text-sm text-[var(--text)] hover:bg-[var(--hover)] border-b border-[var(--border)] last:border-0 transition-colors truncate"
-                      >
-                        "{cmd}"
-                      </button>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {voiceCommands.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowVoiceCommands(!showVoiceCommands)}
-                className="absolute -top-3 -right-2 bg-[var(--bg)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text)] rounded-full p-0.5 shadow-sm z-20 transition-transform hover:scale-110"
-                title="Recent Voice Commands"
-              >
-                <History size={12} />
-              </button>
-            )}
-          </div>
-
-          {/* Google Search Grounding Toggle Button */}
-          <button
-            type="button"
-            onClick={() => setIsWebSearchActive(prev => !prev)}
-            className={`p-2 transition-all rounded-full z-10 relative flex items-center justify-center shrink-0 ${
-              isWebSearchActive
-                ? 'text-blue-500 bg-blue-500/15 ring-2 ring-blue-500/40 shadow-[0_0_12px_rgba(59,130,246,0.3)]'
-                : 'text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)]'
-            }`}
-            title={
-              language === 'bn'
-                ? (isWebSearchActive ? 'গুগল সার্চ গ্রাউন্ডিং সক্রিয় (ক্লিক করে বন্ধ করুন)' : 'গুগল সার্চ গ্রাউন্ডিং চালু করুন (লাইভ গুগল সার্চ ও তথ্যসূত্র)')
-                : (isWebSearchActive ? 'Google Search Grounding Active (Click to disable)' : 'Enable Google Search Grounding (Live Google Search data & sources)')
-            }
-          >
-            <Globe size={20} strokeWidth={isWebSearchActive ? 2 : 1.5} className={isWebSearchActive ? 'text-blue-500 animate-pulse' : ''} />
-            {isWebSearchActive && (
-              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-blue-500 rounded-full ring-2 ring-[var(--card)]" />
-            )}
-          </button>
-
-          {/* The Isolated Textarea */}
-          <div className="relative flex-1 flex flex-col justify-center min-w-0">
-            <textarea
-              ref={inputRef}
-              value={text}
-              maxLength={4000}
-              rows={1}
-              onChange={(e) => {
-                setText(e.target.value);
-                e.target.style.height = 'auto';
-                e.target.style.height = `${Math.min(e.target.scrollHeight, 200)}px`;
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder={
+              className={`p-3 rounded-full flex items-center justify-center transition-all ${
                 isListening
-                  ? (language === 'bn' ? 'শুনছি...' : 'Listening...')
-                  : (language === 'bn' ? 'মেসেজ লিখুন, বা ওয়েব এ কিছু খুঁজুন...' : 'Ask anything, or search the web...')
-              }
-              className="w-full bg-transparent border-none text-[var(--text)] py-3.5 pl-3 pr-14 focus:outline-none focus:ring-0 placeholder-[var(--text-muted)] text-[15px] font-medium resize-none overflow-y-auto leading-relaxed transition-all duration-200"
-              style={{ maxHeight: '200px' }}
-            />
-
-            <div className="absolute right-0 bottom-3 flex items-center pr-3 pointer-events-none">
-              <span className={`text-[10px] font-medium pointer-events-auto mr-1 ${text.length >= 4000 ? 'text-red-500' : 'text-[var(--text-muted)]/50'}`}>
-                {text.length}/4000
-              </span>
-              {text.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setText('');
-                    if (inputRef.current) {
-                      inputRef.current.style.height = 'auto';
-                      inputRef.current.focus();
-                    }
-                  }}
-                  className="text-[var(--text-muted)] hover:text-[var(--text)] transition-colors p-1 pointer-events-auto rounded-full hover:bg-[var(--hover)]"
-                  title="Clear input"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {isListening && (
+                  ? 'text-white bg-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)] animate-pulse scale-110'
+                  : 'text-[var(--text-muted)] hover:text-primary hover:bg-primary/10'
+              }`}
+              title={isListening ? "Stop listening" : "Voice input"}
+            >
+              <Mic size={20} strokeWidth={isListening ? 3 : 2.5} />
+            </button>
+          ) : (
             <button
               type="button"
-              onClick={cancelListening}
-              className="p-2 text-[var(--text-muted)] hover:text-red-500 transition-colors z-10"
-              title="Cancel voice input"
+              onClick={() => alert(language === 'bn' ? "আপনার ব্রাউজারে স্পিচ রিকগনিশন সমর্থিত নয়। অনুগ্রহ করে গুগল ক্রোম ব্যবহার করুন।" : "Speech recognition is not supported in this browser. Please try using Google Chrome.")}
+              className="p-3 rounded-full flex items-center justify-center text-[var(--text-muted)] opacity-40 cursor-not-allowed"
+              title="Voice input not supported"
             >
-              <X size={20} />
+              <Mic size={20} strokeWidth={2.5} />
             </button>
           )}
 
-          {/* Send Button */}
           <button
             type="button"
-            onClick={handleSend}
-            disabled={isSendDisabled}
-            className={`p-2.5 mr-1.5 rounded-[12px] flex items-center justify-center transition-all z-10 ${
-              isSendDisabled
-                ? 'bg-[var(--hover)] text-[var(--text-muted)]'
-                : 'bg-primary text-white hover:shadow-lg hover:shadow-primary/30 hover:scale-105 active:scale-95'
+            onClick={isTyping ? onStopGeneration : handleSend}
+            disabled={!isTyping && isSendDisabled}
+            className={`p-3 mr-1 rounded-full flex items-center justify-center transition-all ${
+              !isTyping && isSendDisabled
+                ? 'text-[var(--text-muted)] opacity-50'
+                : isTyping 
+                  ? 'text-white bg-indigo-500 shadow-md shadow-indigo-500/30'
+                  : 'text-primary hover:bg-primary/10 active:scale-95'
             }`}
+            title={isTyping ? (language === 'bn' ? 'থামান' : 'Stop generating') : (language === 'bn' ? 'মেসেজ পাঠান' : 'Send message')}
           >
-            <Send size={18} className={isSendDisabled ? '' : 'translate-x-[1px] translate-y-[-1px]'} strokeWidth={2.5} />
+            {isTyping ? <Square size={18} fill="currentColor" /> : <Send size={20} strokeWidth={2.5} />}
           </button>
         </div>
 
-        {/* Helper footer */}
-        <div className="flex justify-center mt-2 opacity-50 hover:opacity-100 transition-opacity pb-2">
-          <span className="text-[10px] text-[var(--text-muted)] tracking-widest uppercase font-bold mix-blend-difference">
-            {language === 'bn' ? 'নেক্সারা এআই ভুল করতে পারে। গুরুত্বপূর্ণ তথ্য যাচাই করুন।' : 'Nexara AI can make mistakes. Verify important info.'}
-          </span>
-        </div>
+        {/* Disclaimer text below the input box */}
+        <p className="text-[12px] text-[var(--text-muted)] font-medium text-center px-4 leading-tight">
+          Nexara AI can make mistakes. Please check important info.
+        </p>
       </div>
     </div>
   );

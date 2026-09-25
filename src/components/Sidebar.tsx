@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, LayoutDashboard, Settings, Sparkles, X, Plus, MessageCircle, Pencil, Trash2, Check, Shield, History, Search } from 'lucide-react';
+import { MessageSquare, LayoutDashboard, Settings, Sparkles, X, Plus, MessageCircle, Pencil, Trash2, Check, Shield, History, Search, Menu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -156,11 +156,13 @@ export default function Sidebar({ isOpen, onClose, currentScreen, setCurrentScre
 
       {/* Sidebar Content */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 md:w-[280px] bg-[var(--sidebar)]/95 backdrop-blur-3xl border-r border-[var(--glass-border)] transition-all duration-300 ease-in-out flex flex-col ${
-          isOpen ? 'translate-x-0 shadow-2xl shadow-black/20' : '-translate-x-full'
-        } ${isFocusMode ? 'md:-translate-x-full md:fixed' : 'md:translate-x-0 md:static'}`}
+        className={`fixed inset-y-0 left-0 z-50 bg-[var(--sidebar)]/95 backdrop-blur-3xl border-r border-[var(--glass-border)] transition-all duration-300 ease-in-out flex flex-col ${
+          isOpen 
+            ? 'w-64 md:w-[280px] translate-x-0 shadow-2xl shadow-black/20' 
+            : 'w-0 -translate-x-full'
+        } ${isFocusMode ? 'md:-translate-x-full md:fixed' : 'md:static md:translate-x-0'}`}
       >
-        <div className="flex-1 flex flex-col overflow-hidden relative">
+        <div className={`flex-1 flex flex-col overflow-hidden relative transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           {/* Subtle dynamic background gradient inside sidebar */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-br from-indigo-500/5 via-purple-500/5 to-pink-500/5 rounded-full blur-[60px] pointer-events-none -z-10" />
 
@@ -170,8 +172,12 @@ export default function Sidebar({ isOpen, onClose, currentScreen, setCurrentScre
               <img src="/logo.png" alt="Nexara AI" className="w-8 h-8 object-contain drop-shadow-md" />
               <span className="font-display font-semibold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-[var(--text)] to-[var(--text-muted)]">Nexara AI</span>
             </div>
-            <button onClick={onClose} className="md:hidden p-2 text-[var(--text-muted)] hover:text-primary rounded-[10px] hover:bg-[var(--hover)] transition-all active:scale-95">
-              <X size={20} strokeWidth={2.5} />
+            <button 
+              onClick={onClose} 
+              className="p-2 text-[var(--text-muted)] hover:text-primary rounded-[10px] hover:bg-[var(--hover)] transition-all active:scale-95"
+              title="Close Sidebar"
+            >
+              <Menu size={20} strokeWidth={2.5} />
             </button>
           </div>
 

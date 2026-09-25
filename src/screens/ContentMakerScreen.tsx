@@ -389,13 +389,13 @@ export default function ContentMakerScreen({
   const currentTemplate = templates.find((t) => t.id === selectedTemplate);
 
   return (
-    <div className="relative p-4 sm:p-6 md:p-8 lg:p-12 h-full overflow-y-auto overflow-x-hidden w-full scroll-smooth">
+    <div className="relative p-3 sm:p-6 md:p-8 lg:p-12 h-full overflow-y-auto overflow-x-hidden w-full scroll-smooth">
       {/* Ambient signature background glow (purple-to-pink) */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] sm:w-[900px] h-[600px] opacity-20 pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-r from-[#7C5CFC]/40 via-[#b347cf]/40 to-[#E345A8]/40 blur-[130px] rounded-full mix-blend-screen animate-pulse" />
       </div>
 
-      <div className="max-w-4xl mx-auto relative z-10 pt-2 sm:pt-4 pb-28">
+      <div className="max-w-5xl mx-auto relative z-10 pt-2 sm:pt-4 pb-28">
         {/* Navigation Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">

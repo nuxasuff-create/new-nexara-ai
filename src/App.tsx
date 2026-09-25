@@ -20,7 +20,7 @@ import { useLanguage } from './context/LanguageContext';
 import { handleFirestoreError, OperationType } from './lib/firestore-errors';
 
 export default function App() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(typeof window !== 'undefined' ? window.innerWidth >= 1024 : true);
   const [currentScreen, setCurrentScreen] = useState('chat');
   const [isNavigating, setIsNavigating] = useState(false);
   const isNavigatingRef = useRef(false);
@@ -370,6 +370,7 @@ export default function App() {
         <TopBar
           title={getScreenTitle()}
           onMenuClick={() => setIsSidebarOpen(true)}
+          isSidebarOpen={isSidebarOpen}
           user={user}
           isFocusMode={isFocusMode}
           onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}

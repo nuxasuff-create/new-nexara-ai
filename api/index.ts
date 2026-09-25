@@ -245,7 +245,8 @@ async function callXkiroPrimary(
   temperature: number = 0.7,
   customKey?: string,
   onChunk?: (chunk: string) => void,
-  onStatus?: (status: string, tool?: string) => void
+  onStatus?: (status: string, tool?: string) => void,
+  requestedModel?: string
 ): Promise<string> {
   // Validate custom key prefix
   const validatedCustomKey = (customKey && !customKey.startsWith("gsk_")) ? customKey : undefined;
@@ -265,12 +266,23 @@ async function callXkiroPrimary(
       }
     });
 
-    const primaryModels = [
+    let primaryModels = [
       "qwen/qwen3.5-plus:free",
       "qwen/qwen2.5-72b-instruct",
       "qwen/qwen2.5-32b-instruct",
-      "gpt-4o-mini" // Some xKiro proxies have gpt-4o-mini as fallback
+      "gpt-4o-mini"
     ];
+
+    if (requestedModel) {
+      const lower = requestedModel.toLowerCase();
+      if (lower.includes('deepseek')) {
+        primaryModels = ["deepseek/deepseek-r1", "deepseek/deepseek-chat", ...primaryModels];
+      } else if (lower.includes('qwen')) {
+        primaryModels = ["qwen/qwen3.5-plus:free", "qwen/qwen2.5-72b-instruct", ...primaryModels];
+      } else if (lower.includes('grok')) {
+        primaryModels = ["x-ai/grok-2-1212", "x-ai/grok-beta", ...primaryModels];
+      }
+    }
     
     // Format messages for OpenAI compatibility
     const openaiMessages = messages.map(m => {
@@ -390,7 +402,7 @@ app.post("/api/tts", async (req, res) => {
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { messages, language, apiKey, memory, temperature, systemPromptOverride, userInfo, focusMode } = req.body;
+    const { messages, language, apiKey, memory, temperature, systemPromptOverride, userInfo, focusMode, model } = req.body;
     
     let userInfoInstruction = '';
     const diffInDays = typeof userInfo?.inactiveDays === 'number' ? userInfo.inactiveDays : 0;
@@ -693,7 +705,11 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
           apiKey,
           (chunk) => {
             res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
-          }
+          },
+          (status, tool) => {
+            res.write(`data: ${JSON.stringify({ status, tool })}\n\n`);
+          },
+          model
         );
       } catch (primaryErr: any) {
         console.warn("[xKiro Primary Error] Falling back to vision engine:", primaryErr?.message || primaryErr);
@@ -751,7 +767,10 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
         reply = await callXkiroPrimary(
           finalMessages,
           temperature !== undefined ? temperature : 0.7,
-          apiKey
+          apiKey,
+          undefined,
+          undefined,
+          model
         );
       } catch (primaryErr: any) {
         if (hasImage) {

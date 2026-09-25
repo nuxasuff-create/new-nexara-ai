@@ -8,59 +8,44 @@ export interface SmoothWritingTextProps {
 /**
  * SmoothWritingText
  * -----------------------------------------------------------------------
- * FINAL / APPROVED VERSION.
+ * ADVANCED CHARACTER-BY-CHARACTER TYPING EFFECT.
  *
- * A plain, clean text-streaming animation for the AI's answer — no
- * gradients or shimmer, just each word gently fading + sliding up into
- * place as it arrives, plus a simple blinking cursor at the end while
- * still streaming. Uses an internal queue so it stays smooth even if
- * your backend delivers text in fast/large chunks rather than one word
- * at a time.
+ * This version mimics the premium, "organic" feel of ChatGPT's response
+ * by queuing up incoming characters and revealing them with a slight 
+ * variable delay.
  *
- * This is a DISPLAY component, not a fake typing effect — feed it the
- * real, growing answer text as it streams in from your backend.
- *
- * Usage:
- *   <SmoothWritingText text={liveAnswerText} isStreaming={isStreaming} />
- *
- * - `text`: the full answer text so far (grows as tokens/chunks stream in).
- * - `isStreaming`: whether generation is still in progress — controls
- *   whether the blinking cursor is shown at the end.
- *
- * WHY THIS VERSION FEELS INSTANT INSTEAD OF LAGGY:
- *   - No translateY / movement on each word — only a very fast opacity
- *     fade (120ms). Motion is what reads as "slow catching up"; a pure,
- *     short fade reads as instant even though it's technically animated.
- *   - Adaptive "catch-up" pacing: if the backend sends a big chunk of
- *     words at once (queue backlog builds up), the reveal speed ramps
- *     up automatically so it never visibly lags behind what the model
- *     has actually already generated. With a small/no backlog it uses
- *     a relaxed pace; with a large backlog it nearly snaps to real-time.
+ * It uses a high-performance character queue and adaptive pacing:
+ * - If the queue is short, it types at a natural, readable pace.
+ * - If the backend sends a large burst (chunk), it automatically ramps
+ *   up the speed to "catch up" without feeling like it's lagging behind.
  * -----------------------------------------------------------------------
  */
-
-// Base delay between revealing consecutive words when the queue is
-// roughly caught up (feels like natural typing, not sluggish).
-const BASE_DELAY_MS = 22;
-// Once the queue backs up past this many pending words, speed ramps up
-// so the display catches up to the real stream instead of trailing it.
-const CATCHUP_THRESHOLD = 4;
-const CATCHUP_DELAY_MS = 4;
-
 function SmoothWritingTextComponent({ text = "", isStreaming = false }: SmoothWritingTextProps) {
-  const [visibleCount, setVisibleCount] = useState(0);
-  const queueRef = useRef<number[]>([]);
+  const [displayedText, setDisplayedText] = useState("");
+  const queueRef = useRef<string[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fullTextRef = useRef(text);
 
-  const words = text.length ? text.split(" ") : [];
+  // Constants for pacing
+  const MIN_DELAY = 4; // Fast catch-up speed (ms)
+  const MAX_DELAY = 22; // Natural base speed (ms)
+  const CATCHUP_THRESHOLD = 40; // chars
 
   useEffect(() => {
-    const alreadyHandled = visibleCount + queueRef.current.length;
-    for (let i = alreadyHandled; i < words.length; i++) {
-      queueRef.current.push(i);
-    }
-    if (!timerRef.current) {
-      processQueue();
+    // Determine what's new since the last fullTextRef update
+    if (text.length > fullTextRef.current.length) {
+      const newChars = text.slice(fullTextRef.current.length).split("");
+      queueRef.current.push(...newChars);
+      fullTextRef.current = text;
+
+      if (!timerRef.current) {
+        processQueue();
+      }
+    } else if (text.length < fullTextRef.current.length) {
+      // If text was reset (e.g., new chat), clear everything
+      setDisplayedText(text);
+      fullTextRef.current = text;
+      queueRef.current = [];
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
@@ -70,13 +55,30 @@ function SmoothWritingTextComponent({ text = "", isStreaming = false }: SmoothWr
       timerRef.current = null;
       return;
     }
-    const nextIndex = queueRef.current.shift();
-    if (nextIndex !== undefined) {
-      setVisibleCount(nextIndex + 1);
+
+    // Pull next character
+    const char = queueRef.current.shift();
+    if (char !== undefined) {
+      setDisplayedText((prev) => prev + char);
     }
-    // Speed up automatically when falling behind the real stream.
-    const delay = queueRef.current.length > CATCHUP_THRESHOLD ? CATCHUP_DELAY_MS : BASE_DELAY_MS;
-    timerRef.current = setTimeout(processQueue, delay);
+
+    // Adaptive delay calculation
+    const queueDepth = queueRef.current.length;
+    let baseDelay = MAX_DELAY;
+    
+    if (queueDepth > CATCHUP_THRESHOLD) {
+      baseDelay = MIN_DELAY;
+    } else if (queueDepth > 0) {
+      const ratio = queueDepth / CATCHUP_THRESHOLD;
+      baseDelay = MAX_DELAY - (MAX_DELAY - MIN_DELAY) * ratio;
+    }
+
+    // Add a tiny bit of random "human" jitter (±15% of delay)
+    // This makes it feel less like a mechanical timer
+    const jitter = baseDelay * 0.15;
+    const finalDelay = baseDelay + (Math.random() * jitter * 2 - jitter);
+
+    timerRef.current = setTimeout(processQueue, Math.max(1, finalDelay));
   }
 
   useEffect(() => {
@@ -85,56 +87,48 @@ function SmoothWritingTextComponent({ text = "", isStreaming = false }: SmoothWr
     };
   }, []);
 
-  const visibleWords = words.slice(0, visibleCount);
+  if (!displayedText && !isStreaming) return null;
+
   const stillCatchingUp = queueRef.current.length > 0;
 
   return (
-    <span className="nw-wrap">
-      {visibleWords.map((w, i) => (
-        <span key={i} className="nw-word">
-          {w}
-          {i < visibleWords.length - 1 ? "\u00A0" : ""}
-        </span>
-      ))}
-      {(isStreaming || stillCatchingUp) && <span className="nw-cursor" aria-hidden="true" />}
+    <span className="typing-wrap">
+      {displayedText}
+      {(isStreaming || stillCatchingUp) && <span className="typing-cursor" aria-hidden="true" />}
 
       <style>{`
-        .nw-wrap {
+        .typing-wrap {
           display: inline;
+          white-space: pre-wrap;
+          word-break: break-word;
         }
 
-        .nw-word {
+        .typing-cursor {
           display: inline-block;
-          opacity: 0;
-          animation: nwIn 0.12s ease-out forwards;
+          width: 6px;
+          height: 1.1em;
+          background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
+          margin-left: 4px;
+          vertical-align: -0.15em;
+          border-radius: 9999px;
+          animation: typingPulse 0.8s ease-in-out infinite;
+          box-shadow: 0 0 8px rgba(129, 140, 248, 0.4);
+          will-change: opacity, transform;
         }
 
-        @keyframes nwIn {
-          to { opacity: 1; }
-        }
-
-        .nw-cursor {
-          display: inline-block;
-          width: 2px;
-          height: 1em;
-          background: currentColor;
-          opacity: 0.6;
-          margin-left: 1px;
-          vertical-align: text-bottom;
-          animation: nwBlink 0.85s steps(1) infinite;
-        }
-
-        @keyframes nwBlink {
-          0%, 50% { opacity: 0.6; }
-          51%, 100% { opacity: 0; }
+        @keyframes typingPulse {
+          0%, 100% {
+            opacity: 1;
+            transform: scaleY(1);
+          }
+          50% {
+            opacity: 0.3;
+            transform: scaleY(0.85);
+          }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .nw-word {
-            animation: none;
-            opacity: 1;
-          }
-          .nw-cursor {
+          .typing-cursor {
             animation: none;
           }
         }

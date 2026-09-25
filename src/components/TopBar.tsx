@@ -5,12 +5,13 @@ import { useLanguage } from '../context/LanguageContext';
 interface TopBarProps {
   title: string;
   onMenuClick: () => void;
+  isSidebarOpen: boolean;
   user: FirebaseUser;
   isFocusMode?: boolean;
   onToggleFocusMode?: () => void;
 }
 
-export default function TopBar({ title, onMenuClick, user, isFocusMode = false, onToggleFocusMode }: TopBarProps) {
+export default function TopBar({ title, onMenuClick, isSidebarOpen, user, isFocusMode = false, onToggleFocusMode }: TopBarProps) {
   const { language } = useLanguage();
 
   return (
@@ -20,10 +21,11 @@ export default function TopBar({ title, onMenuClick, user, isFocusMode = false, 
         : 'bg-[var(--glass-bg)] backdrop-blur-md border-b border-[var(--glass-border)]'
     }`}>
       <div className="flex items-center gap-3 relative z-10 w-full overflow-hidden">
-        {!isFocusMode && (
+        {!isFocusMode && (!isSidebarOpen || window.innerWidth < 768) && (
           <button
             onClick={onMenuClick}
-            className="p-2 -ml-2 text-[var(--text)] hover:bg-[var(--hover)] hover:text-primary hover:shadow-sm rounded-[12px] transition-all duration-300 md:hidden active:scale-95 flex-shrink-0"
+            className="p-2 -ml-2 text-[var(--text)] hover:bg-[var(--hover)] hover:text-primary hover:shadow-sm rounded-[12px] transition-all duration-300 active:scale-95 flex-shrink-0"
+            title="Open Sidebar"
           >
             <Menu size={22} strokeWidth={2.5} />
           </button>

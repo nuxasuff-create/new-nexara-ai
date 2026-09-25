@@ -191,18 +191,6 @@ const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBo
       className={`flex w-full ${msg.sender === 'user' ? 'justify-end' : 'justify-start'} group/wrapper`}
     >
       <div className={`flex gap-3 w-full ${msg.sender === 'user' ? 'justify-end max-w-[85%]' : 'max-w-full items-start'}`}>
-        {/* Avatar */}
-        {msg.sender === 'ai' && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.85 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.25, ease: "easeOut" }}
-            className="flex-shrink-0 w-9 h-9 rounded-[12px] flex items-center justify-center overflow-hidden bg-[var(--glass-bg)] border border-[var(--glass-border)] shadow-sm mt-1 z-10 transition-transform hover:scale-105 p-1"
-          >
-            <img src="/logo.png" alt="AI" className="w-full h-full object-contain" />
-          </motion.div>
-        )}
-        
         {/* Message Content */}
         <div className={`flex flex-col gap-1.5 min-w-0 group relative ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
           <motion.div
@@ -517,11 +505,28 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
   const [voiceCommands, setVoiceCommands] = useState<string[]>([]);
   const [showVoiceCommands, setShowVoiceCommands] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [selectedModel, setSelectedModel] = useState('Nexara AI');
   const [drawerState, setDrawerState] = useState<DrawerState>({
     isOpen: false,
     project: null,
     activeFileId: null
   });
+
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleStopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsTyping(false);
+      setCurrentAiActivity(null);
+      setStatusMessage('');
+      setStatusTool('');
+      setStreamingText('');
+      setStreamingSources([]);
+      finishBackgroundGeneration();
+    }
+  }, []);
 
   const handleOpenPreview = useCallback((project: ArtifactProject, fileId?: string) => {
     setDrawerState({
@@ -710,7 +715,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
     
     setIsSpeechSupported(true);
     const recognition = new SpeechRecognition();
-    recognition.continuous = false; // continuous false is most reliable across desktop and mobile
+    recognition.continuous = true; 
     recognition.interimResults = true;
     
     const langMap: Record<string, string> = {
@@ -1332,6 +1337,12 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
     requestNotificationPermission();
     startBackgroundGeneration(initialStatusText);
 
+    // Initialize AbortController for stop-generation feature
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
     let chatId = currentChatId;
     const isNewChat = !chatId;
     const isFirstExchange = messages.length === 0;
@@ -1425,6 +1436,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
           'Content-Type': 'application/json',
           'Accept': 'text/event-stream, application/json'
         },
+        signal: abortControllerRef.current?.signal,
         body: JSON.stringify({ 
           messages: groqMessages, 
           language, 
@@ -1440,6 +1452,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
           systemPromptOverride,
           temperature,
           webSearch: isWebSearchActive,
+          model: selectedModel,
           stream: true
         })
       });
@@ -1591,6 +1604,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       setStatusTool('');
       setStreamingText('');
       setStreamingSources([]);
+      abortControllerRef.current = null;
       finishBackgroundGeneration(replyText);
 
       if (usedVoice) {
@@ -1624,11 +1638,16 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       }
 
       } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.log("AI generation stopped by user.");
+        return;
+      }
       setIsTyping(false);
       setCurrentAiActivity(null);
       setStatusMessage('');
       setStatusTool('');
       setStreamingText('');
+      abortControllerRef.current = null;
       finishBackgroundGeneration();
       
       const cleanErrorMsg = parseFrontendError(error);
@@ -2029,7 +2048,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
-      className="flex flex-col h-full bg-transparent relative overflow-hidden"
+      className="flex flex-col h-dvh bg-transparent relative overflow-hidden"
     >
       {/* Drag & Drop Overlay */}
       <AnimatePresence>
@@ -2054,31 +2073,19 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       </AnimatePresence>
 
       {/* Chat Area */}
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 pt-3 pb-2 md:px-8 md:pt-4">
+      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 pt-3 pb-2 md:px-8 md:pt-4">
         {messages.length === 0 && !isTyping ? (
           <div className="flex flex-col min-h-full justify-end text-center pb-2 pt-4">
-            <div className="mt-auto mb-2 flex flex-col items-center justify-center w-full max-w-3xl mx-auto">
-              <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              transition={{ delay: 0.1, duration: 0.8, type: "spring", bounce: 0.4 }}
-              className="relative w-20 h-20 sm:w-24 sm:h-24 mb-4 sm:mb-5"
-            >
-              {/* Pulsing ring background */}
-              <div className="absolute inset-0 bg-primary/20 blur-[30px] rounded-full animate-pulse z-0" />
-              
-              <div className="relative z-10 w-full h-full rounded-[2rem] bg-[var(--glass-bg)] border border-[var(--glass-border)] shadow-2xl flex items-center justify-center mx-auto transform rotate-[-2deg] hover:rotate-3 transition-transform duration-500 overflow-hidden p-3.5">
-                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none z-10" />
-                <img src="/logo.png" alt="Nexara AI" className="w-full h-full object-contain drop-shadow-2xl" />
-              </div>
-            </motion.div>
+            <div className="mt-auto mb-2 flex flex-col items-center justify-center w-full max-w-5xl mx-auto">
             <motion.h1 
               initial={{ y: 15, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.3, duration: 0.5 }}
-              className="text-3xl sm:text-5xl font-display font-bold mb-2 tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500"
+              className="text-3xl sm:text-5xl font-display font-bold mb-2 tracking-tight flex items-center justify-center gap-3 sm:gap-4"
             >
-              {language === 'bn' ? 'আমি নেক্সারা এআই' : 'I am Nexara AI'}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500">
+                {language === 'bn' ? 'আজ আমি আপনাকে কীভাবে সাহায্য করতে পারি?' : 'How can I help you today?'}
+              </span>
             </motion.h1>
             <motion.p
               initial={{ y: 15, opacity: 0 }}
@@ -2093,34 +2100,50 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
               initial={{ y: 20, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
               transition={{ delay: 0.5, duration: 0.5 }}
-              className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 w-full max-w-2xl px-2 sm:px-4"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 w-full max-w-2xl px-2 sm:px-4"
             >
               {[
                 { 
-                  icon: <Sparkles size={18}/>, 
+                  icon: <Sparkles size={20}/>, 
                   en: "Generate a creative story", 
                   bn: "একটি সৃজনশীল গল্প তৈরি করুন",
+                  descEn: "Unleash imagination with unique plots",
+                  descBn: "অদ্বিতীয় কাহিনী দিয়ে কল্পনাকে জাগিয়ে তুলুন",
+                  color: "from-purple-500/20 to-indigo-500/20",
+                  iconColor: "text-purple-500",
                   sysPrompt: "Generate a unique, unpredictable, and highly creative short story. Randomly choose a genre (e.g., Sci-Fi, Mystery, Cyberpunk, Fantasy, or Time Travel) and invent compelling characters. Ensure it is not generic.",
                   temp: 0.85
                 },
                 { 
-                  icon: <FileText size={18}/>, 
+                  icon: <FileText size={20}/>, 
                   en: "Summarize a long article", 
                   bn: "একটি দীর্ঘ নিবন্ধ সারসংক্ষেপ করুন",
+                  descEn: "Get key points in seconds",
+                  descBn: "সেকেন্ডের মধ্যে মূল পয়েন্টগুলো জানুন",
+                  color: "from-blue-500/20 to-cyan-500/20",
+                  iconColor: "text-blue-500",
                   sysPrompt: "The user wants to summarize a long article. Please provide a clear, concise article summary framework or analyze an interesting topic, and invite the user to share their own article or text for you to summarize.",
                   temp: 0.7
                 },
                 { 
-                  icon: <Search size={18}/>, 
+                  icon: <Search size={20}/>, 
                   en: "Find recent news about AI", 
                   bn: "এআই সম্পর্কে সাম্প্রতিক সংবাদ খুঁজুন",
+                  descEn: "Stay updated with latest trends",
+                  descBn: "সর্বশেষ ট্রেন্ড সম্পর্কে আপডেটেড থাকুন",
+                  color: "from-emerald-500/20 to-teal-500/20",
+                  iconColor: "text-emerald-500",
                   sysPrompt: "Act as an AI news reporter. Share 3 to 5 key recent developments, breakthroughs, or insights in Artificial Intelligence. Format this in a clean, bulleted news summary format.",
                   temp: 0.75
                 },
                 { 
-                  icon: <ImageIcon size={18}/>, 
+                  icon: <ImageIcon size={20}/>, 
                   en: "Write code to fetch an image", 
                   bn: "একটি চিত্র আনার জন্য কোড লিখুন",
+                  descEn: "Modern API integration examples",
+                  descBn: "আধুনিক এপিআই ইন্টিগ্রেশন উদাহরণ",
+                  color: "from-amber-500/20 to-orange-500/20",
+                  iconColor: "text-amber-500",
                   sysPrompt: "Generate modern, clean, production-ready code (using JavaScript, Python, or React) to fetch and display a random image. You may use Unsplash, Pexels, or the standard Fetch API. Explain how the code works.",
                   temp: 0.7
                 }
@@ -2130,21 +2153,29 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
                   onClick={() => {
                     handleSend(language === 'bn' ? prompt.bn : prompt.en, prompt.sysPrompt, prompt.temp);
                   }}
-                  className="flex items-center gap-2.5 sm:gap-3 p-2.5 sm:p-3 bg-[var(--glass-bg)] hover:bg-[var(--hover)] border border-[var(--border)] rounded-2xl text-left transition-all hover:scale-[1.01] hover:shadow-md"
+                  className="group relative flex items-start gap-4 p-4 bg-[var(--glass-bg)] hover:bg-[var(--hover)] border border-[var(--border)] rounded-2xl text-left transition-all hover:scale-[1.02] hover:shadow-xl overflow-hidden"
                 >
-                  <div className="p-2 bg-indigo-500/10 text-indigo-500 rounded-xl shrink-0">
+                  <div className={`absolute inset-0 bg-gradient-to-br ${prompt.color} opacity-0 group-hover:opacity-100 transition-opacity duration-500`} />
+                  
+                  <div className={`relative p-2.5 bg-[var(--card)] border border-[var(--border)] ${prompt.iconColor} rounded-xl shrink-0 shadow-sm group-hover:scale-110 transition-transform duration-300`}>
                     {prompt.icon}
                   </div>
-                  <span className="text-[13px] sm:text-[14px] font-medium text-[var(--text-muted)] group-hover:text-[var(--text)] line-clamp-1">
-                    {language === 'bn' ? prompt.bn : prompt.en}
-                  </span>
+                  
+                  <div className="relative flex flex-col gap-0.5">
+                    <span className="text-[14px] sm:text-[15px] font-bold text-[var(--text)] group-hover:text-primary transition-colors line-clamp-1">
+                      {language === 'bn' ? prompt.bn : prompt.en}
+                    </span>
+                    <span className="text-[11px] sm:text-[12px] text-[var(--text-muted)] font-medium leading-tight">
+                      {language === 'bn' ? prompt.descBn : prompt.descEn}
+                    </span>
+                  </div>
                 </button>
               ))}
             </motion.div>
             </div>
           </div>
         ) : (
-          <div className="max-w-3xl mx-auto w-full space-y-6 pb-4">
+          <div className="max-w-5xl mx-auto w-full space-y-6 pb-4">
             {!isFocusMode && filteredMessages.length > 2 && (
               <div className="flex flex-col sm:flex-row justify-between items-center gap-3 mb-4">
                 <div className="relative w-full sm:w-auto flex-1 max-w-md">
@@ -2205,9 +2236,6 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
                   className="flex justify-start pt-2 w-full"
                 >
                   <div className="flex w-full items-start gap-3">
-                    <div className="flex-shrink-0 w-9 h-9 rounded-[12px] flex items-center justify-center overflow-hidden bg-[var(--glass-bg)] border border-[var(--glass-border)] shadow-sm mt-1 z-10 transition-transform p-1">
-                      <img src="/logo.png" alt="AI Typing" className="w-full h-full object-contain animate-pulse" />
-                    </div>
                     <div className="flex-1 max-w-[85%] sm:max-w-[88%] bg-[var(--glass-bg)] backdrop-blur-2xl border border-[var(--glass-border)] rounded-[24px] rounded-tl-[6px] px-5 py-4 shadow-sm flex flex-col relative mt-1 text-[var(--text)]">
                       {streamingText ? (
                     <div className="markdown-body text-sm leading-relaxed mb-1">
@@ -2347,6 +2375,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       <ChatInputBar
         onSend={handleSend}
         isTyping={isTyping}
+        onStopGeneration={handleStopGeneration}
         language={language}
         currentChatId={currentChatId}
         initialPrompt={initialPrompt}
@@ -2372,6 +2401,8 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         }}
         voiceCommands={voiceCommands}
         voiceTranscript={interimVoiceText}
+        selectedModel={selectedModel}
+        onModelChange={setSelectedModel}
       />
 
       {/* Summary Modal */}

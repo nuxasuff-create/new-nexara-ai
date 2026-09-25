@@ -231,13 +231,13 @@ export default function DashboardScreen({
   ];
 
   return (
-    <div className="relative p-4 sm:p-6 md:p-8 lg:p-12 h-full overflow-y-auto overflow-x-hidden w-full scroll-smooth">
+    <div className="relative p-3 sm:p-6 md:p-8 lg:p-12 h-full overflow-y-auto overflow-x-hidden w-full scroll-smooth">
       {/* Ambient background glow */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] sm:w-[900px] h-[600px] opacity-25 pointer-events-none">
         <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/40 via-purple-500/40 to-pink-500/40 blur-[130px] rounded-full mix-blend-screen animate-pulse" />
       </div>
 
-      <div className="max-w-7xl mx-auto relative z-10 pt-2 sm:pt-6 pb-24">
+      <div className="max-w-none px-2 sm:px-4 md:px-6 relative z-10 pt-2 sm:pt-6 pb-24">
         
         {/* Hero Header Section */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-10 gap-8">
@@ -249,18 +249,16 @@ export default function DashboardScreen({
               </span>
             </div>
 
-            <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-extrabold tracking-tight text-[var(--text)] mb-4 leading-[1.08]">
-              {language === 'bn' ? 'এআই এর ক্ষমতা দিয়ে' : 'Empower your work with'}{' '}
-              <br className="hidden sm:block" />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-500 italic font-[Georgia]">
-                {language === 'bn' ? 'গতি ও সৃজনশীলতা বৃদ্ধি করুন।' : 'next-gen AI tools.'}
+            <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-display font-black tracking-tighter mb-6 leading-[1.05]">
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-fuchsia-500 via-indigo-500 to-emerald-400 animate-gradient-x drop-shadow-[0_0_15px_rgba(168,85,247,0.4)]">
+                {language === 'bn' ? 'ভবিষ্যৎকে উন্মোচন করুন' : 'Unleash the Future'}
               </span>
             </h1>
 
-            <p className="text-base sm:text-lg md:text-xl text-[var(--text-muted)] max-w-2xl font-normal leading-relaxed">
+            <p className="text-lg sm:text-xl md:text-2xl text-[var(--text-muted)] max-w-3xl font-medium leading-relaxed tracking-wide opacity-90">
               {language === 'bn' 
-                ? 'যেকোনো কাজ দ্রুত এবং নির্ভুলভাবে সম্পন্ন করার জন্য নিবেদিত স্মার্ট এআই টুলস ব্যবহার করুন।' 
-                : 'Accelerate your workflow with specialized intelligent modules tuned for maximum performance.'}
+                ? 'সীমানা ভেঙে ফেলুন। Nexara AI-এর সাথে কোড করুন, তৈরি করুন এবং জয় করুন।' 
+                : 'Break the limits. Code, create, and conquer with Nexara AI.'}
             </p>
 
             {/* Quick Stats Pill Strip */}

@@ -53,6 +53,20 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    min-height: 100dvh;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+
+  .h-dvh {
+    height: 100dvh;
   }
 
   h1, h2, h3, h4, h5, h6 {
@@ -100,6 +114,21 @@
   background: linear-gradient(135deg, #22d3ee 0%, #34d399 100%);
   animation: cursor-pulse-glow 0.8s ease-in-out infinite;
   will-change: transform, opacity;
+}
+
+@keyframes gradient-x {
+  0%, 100% {
+    background-size: 200% 200%;
+    background-position: left center;
+  }
+  50% {
+    background-size: 200% 200%;
+    background-position: right center;
+  }
+}
+
+.animate-gradient-x {
+  animation: gradient-x 10s ease infinite;
 }
 
 .markdown-body {
