@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Send, Plus, X, Image as ImageIcon, Mic, Square } from 'lucide-react';
+import { ArrowUp, Plus, X, Image as ImageIcon, Mic, Square } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 
 export interface ChatInputBarProps {
   onSend: (text: string) => void;
@@ -216,26 +217,87 @@ function ChatInputBarComponent({
             </button>
           )}
 
-          <button
+          <motion.button
             type="button"
             onClick={isTyping ? onStopGeneration : handleSend}
             disabled={!isTyping && isSendDisabled}
-            className={`p-3 mr-1 rounded-full flex items-center justify-center transition-all ${
-              !isTyping && isSendDisabled
-                ? 'text-[var(--text-muted)] opacity-50'
-                : isTyping 
-                  ? 'text-white bg-indigo-500 shadow-md shadow-indigo-500/30'
-                  : 'text-primary hover:bg-primary/10 active:scale-95'
-            }`}
+            initial={false}
+            animate={{
+              scale: isTyping || !isSendDisabled ? 1 : 0.9,
+              background: isTyping 
+                ? 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' 
+                : !isSendDisabled 
+                  ? 'linear-gradient(135deg, #6366f1 0%, #a855f7 100%)' 
+                  : 'rgba(0, 0, 0, 0.05)',
+              boxShadow: !isSendDisabled || isTyping
+                ? isTyping 
+                  ? '0 0 20px rgba(239, 68, 68, 0.3)' 
+                  : '0 10px 25px -5px rgba(99, 102, 241, 0.4), 0 8px 10px -6px rgba(99, 102, 241, 0.4)'
+                : 'none'
+            }}
+            whileHover={!isSendDisabled || isTyping ? { 
+              scale: 1.05,
+              filter: 'brightness(1.1)',
+            } : {}}
+            whileTap={{ scale: 0.95 }}
+            className="relative p-3 mr-1 rounded-2xl flex items-center justify-center transition-all overflow-hidden group"
             title={isTyping ? (language === 'bn' ? 'থামান' : 'Stop generating') : (language === 'bn' ? 'মেসেজ পাঠান' : 'Send message')}
           >
-            {isTyping ? <Square size={18} fill="currentColor" /> : <Send size={20} strokeWidth={2.5} />}
-          </button>
+            {/* Animated background glow for active state */}
+            {!isSendDisabled && !isTyping && (
+              <motion.div
+                layoutId="glow"
+                className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                animate={{
+                  background: [
+                    'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.4) 0%, transparent 70%)',
+                    'radial-gradient(circle at 30% 70%, rgba(255,255,255,0.4) 0%, transparent 70%)',
+                    'radial-gradient(circle at 70% 30%, rgba(255,255,255,0.4) 0%, transparent 70%)',
+                    'radial-gradient(circle at 50% 50%, rgba(255,255,255,0.4) 0%, transparent 70%)',
+                  ]
+                }}
+                transition={{ duration: 3, repeat: Infinity }}
+              />
+            )}
+
+            <AnimatePresence mode="wait">
+              {isTyping ? (
+                <motion.div
+                  key="stop"
+                  initial={{ scale: 0, rotate: -90 }}
+                  animate={{ scale: 1, rotate: 0 }}
+                  exit={{ scale: 0, rotate: 90 }}
+                  transition={{ type: 'spring', damping: 12, stiffness: 200 }}
+                >
+                  <Square size={18} fill="white" stroke="white" />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="send"
+                  initial={{ y: 20, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  exit={{ y: -20, opacity: 0 }}
+                  transition={{ type: 'spring', damping: 15, stiffness: 300 }}
+                  className={!isSendDisabled ? 'text-white' : 'text-[var(--text-muted)]'}
+                >
+                  <ArrowUp size={22} strokeWidth={3} />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.button>
         </div>
 
         {/* Disclaimer text below the input box */}
         <p className="text-[12px] text-[var(--text-muted)] font-medium text-center px-4 leading-tight">
-          Nexara AI can make mistakes. Please check important info.
+          Nexara AI can make mistakes. Check important info at{' '}
+          <a 
+            href="https://ainexara.com" 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-primary hover:underline transition-all"
+          >
+            ainexara.com
+          </a>
         </p>
       </div>
     </div>

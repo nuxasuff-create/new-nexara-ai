@@ -208,12 +208,16 @@ export default function LoginScreen() {
               transition={{ delay: 0.2, duration: 0.5, type: "spring" }}
               className="relative group mb-6"
             >
-              <div className="absolute inset-0 bg-primary/20 rounded-3xl blur-[20px] transition-colors duration-500" />
-              <div className="relative w-24 h-24 bg-[var(--glass-bg)] border border-[var(--glass-border)] shadow-xl rounded-3xl flex items-center justify-center p-3 overflow-hidden">
-                <img src="/logo.png" alt="Nexara AI" className="w-full h-full object-contain drop-shadow-md" />
-              </div>
+              <a href="https://ainexara.com" target="_blank" rel="noopener noreferrer" className="block">
+                <div className="absolute inset-0 bg-primary/20 rounded-3xl blur-[20px] transition-colors duration-500" />
+                <div className="relative w-24 h-24 bg-[var(--glass-bg)] border border-[var(--glass-border)] shadow-xl rounded-3xl flex items-center justify-center p-3 overflow-hidden hover:scale-105 transition-transform duration-300">
+                  <img src="/logo.png" alt="Nexara AI" className="w-full h-full object-contain drop-shadow-md" />
+                </div>
+              </a>
             </motion.div>
-            <h1 className="text-4xl font-display font-bold tracking-tight mb-2 text-transparent bg-clip-text bg-gradient-to-r from-[var(--text)] to-[var(--text-muted)]">Nexara AI</h1>
+            <a href="https://ainexara.com" target="_blank" rel="noopener noreferrer" className="hover:opacity-80 transition-opacity">
+              <h1 className="text-4xl font-display font-bold tracking-tight mb-2 text-transparent bg-clip-text bg-gradient-to-r from-[var(--text)] to-[var(--text-muted)]">Nexara AI</h1>
+            </a>
             <p className="text-[var(--text-muted)] text-[15px] font-medium tracking-wide">{t.loginToContinue}</p>
           </div>
 

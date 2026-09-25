@@ -184,6 +184,7 @@ const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBo
 
   return (
     <motion.div
+      layout
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
@@ -457,23 +458,28 @@ const MessageList = React.memo(({
   }
 
   return (
-    <AnimatePresence initial={false}>
-      {filteredMessages.map((msg) => (
-        <MessageItem 
-          key={msg.id} 
-          msg={msg} 
-          isCurrentlySpeaking={isSpeaking === msg.id} 
-          copiedId={copiedId} 
-          scrollToBottom={scrollToBottom} 
-          toggleSpeech={toggleSpeech} 
-          handleCopy={handleCopy} 
-          onOpenPreview={onOpenPreview}
-          onEditUserMessage={onEditUserMessage}
-          onRetryAiMessage={onRetryAiMessage}
-          language={language}
-        />
-      ))}
-    </AnimatePresence>
+    <motion.div 
+      layout
+      className="flex flex-col gap-4"
+    >
+      <AnimatePresence initial={false} mode="popLayout">
+        {filteredMessages.map((msg) => (
+          <MessageItem 
+            key={msg.id} 
+            msg={msg} 
+            isCurrentlySpeaking={isSpeaking === msg.id} 
+            copiedId={copiedId} 
+            scrollToBottom={scrollToBottom} 
+            toggleSpeech={toggleSpeech} 
+            handleCopy={handleCopy} 
+            onOpenPreview={onOpenPreview}
+            onEditUserMessage={onEditUserMessage}
+            onRetryAiMessage={onRetryAiMessage}
+            language={language}
+          />
+        ))}
+      </AnimatePresence>
+    </motion.div>
   );
 });
 
@@ -518,13 +524,6 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
-      setIsTyping(false);
-      setCurrentAiActivity(null);
-      setStatusMessage('');
-      setStatusTool('');
-      setStreamingText('');
-      setStreamingSources([]);
-      finishBackgroundGeneration();
     }
   }, []);
 
@@ -607,7 +606,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [userHasScrolled, setUserHasScrolled] = useState(false);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
-  const isAiWorking = Boolean(isTyping && (!streamingText || streamingText.trim().length === 0));
+  const isAiWorking = Boolean(isTyping && (!streamingText || streamingText.trim().length < 5));
 
   const handleScroll = useCallback(() => {
     if (!scrollContainerRef.current) return;
@@ -632,12 +631,16 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
 
   const scrollToBottom = useCallback((force = false) => {
     if (userHasScrolled && !force) return;
+    
     if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+    
     scrollRafRef.current = requestAnimationFrame(() => {
-      if (scrollContainerRef.current) {
-        scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+      const container = scrollContainerRef.current;
+      if (container) {
+        // Use a more direct scroll to avoid jitter during streaming
+        container.scrollTop = container.scrollHeight;
       } else {
-        messagesEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+        messagesEndRef.current?.scrollIntoView({ behavior: force ? 'smooth' : 'auto', block: 'end' });
       }
     });
   }, [userHasScrolled]);
@@ -1347,6 +1350,10 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
     const isNewChat = !chatId;
     const isFirstExchange = messages.length === 0;
 
+    let replyText = "";
+    let currentSources: GroundingSource[] = [];
+    let currentQueries: string[] = [];
+
     try {
       if (!chatId) {
         // Create new chat with fallback title
@@ -1475,10 +1482,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       }
       
       const contentType = response.headers.get("content-type");
-      let replyText = "";
       let generatedImage = null;
-      let currentSources: GroundingSource[] = [];
-      let currentQueries: string[] = [];
 
       if (contentType && contentType.includes("text/event-stream") && response.body) {
         const reader = response.body.getReader();
@@ -1598,20 +1602,25 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
 
       const aiDocRef = await addDoc(collection(db, path), aiResponseData);
 
-      setIsTyping(false);
-      setCurrentAiActivity(null);
-      setStatusMessage('');
-      setStatusTool('');
-      setStreamingText('');
-      setStreamingSources([]);
-      abortControllerRef.current = null;
-      finishBackgroundGeneration(replyText);
+      // Delayed stabilization cleanup
+      const finalizeCleanup = () => {
+        setIsTyping(false);
+        setCurrentAiActivity(null);
+        setStatusMessage('');
+        setStatusTool('');
+        setStreamingText('');
+        setStreamingSources([]);
+        abortControllerRef.current = null;
+        finishBackgroundGeneration(replyText);
 
-      if (usedVoice) {
-        toggleSpeech(replyText, aiDocRef.id);
-      }
-      
-      scrollToBottom();
+        if (usedVoice) {
+          toggleSpeech(replyText, aiDocRef.id);
+        }
+        
+        requestAnimationFrame(() => scrollToBottom(true));
+      };
+
+      setTimeout(finalizeCleanup, 400);
 
       // Auto-summarize conversation main topic into a concise title for chat history
       if (isNewChat || isFirstExchange || messages.length <= 1) {
@@ -1640,6 +1649,39 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       } catch (error: any) {
       if (error.name === 'AbortError') {
         console.log("AI generation stopped by user.");
+        
+        // Save partial AI response even if stopped
+        if (replyText.trim() && chatId && userId) {
+          try {
+            const path = `users/${userId}/chats/${chatId}/messages`;
+            const aiResponseData: any = {
+              text: replyText,
+              sender: 'ai',
+              timestamp: serverTimestamp(),
+              wasStopped: true
+            };
+            
+            if (currentSources.length > 0) {
+              aiResponseData.sources = currentSources;
+            }
+            if (currentQueries.length > 0) {
+              aiResponseData.searchQueries = currentQueries;
+            }
+            
+            await addDoc(collection(db, path), aiResponseData);
+          } catch (saveErr) {
+            console.error("Failed to save partial AI response:", saveErr);
+          }
+        }
+
+        setIsTyping(false);
+        setCurrentAiActivity(null);
+        setStatusMessage('');
+        setStatusTool('');
+        setStreamingText('');
+        setStreamingSources([]);
+        abortControllerRef.current = null;
+        finishBackgroundGeneration(replyText);
         return;
       }
       setIsTyping(false);
@@ -1827,20 +1869,25 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
 
       await updateDoc(msgDocRef, updatePayload);
 
-      setIsTyping(false);
-      setCurrentAiActivity(null);
-      setStatusMessage('');
-      setStatusTool('');
-      setStreamingText('');
-      setStreamingSources([]);
-      scrollToBottom();
+      // Cleanup with stabilization delay to avoid UI flashing
+      setTimeout(() => {
+        setIsTyping(false);
+        setCurrentAiActivity(null);
+        setStatusMessage('');
+        setStatusTool('');
+        setStreamingText('');
+        setStreamingSources([]);
+        scrollToBottom(true);
+      }, 400);
     } catch (error: any) {
-      setIsTyping(false);
-      setCurrentAiActivity(null);
-      setStatusMessage('');
-      setStatusTool('');
-      setStreamingText('');
-      setStreamingSources([]);
+      setTimeout(() => {
+        setIsTyping(false);
+        setCurrentAiActivity(null);
+        setStatusMessage('');
+        setStatusTool('');
+        setStreamingText('');
+        setStreamingSources([]);
+      }, 300);
       console.error("Error retrying AI response:", error);
     }
   };
@@ -2015,20 +2062,24 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         });
       }
 
-      setIsTyping(false);
-      setCurrentAiActivity(null);
-      setStatusMessage('');
-      setStatusTool('');
-      setStreamingText('');
-      setStreamingSources([]);
-      scrollToBottom();
+      setTimeout(() => {
+        setIsTyping(false);
+        setCurrentAiActivity(null);
+        setStatusMessage('');
+        setStatusTool('');
+        setStreamingText('');
+        setStreamingSources([]);
+        scrollToBottom(true);
+      }, 400);
     } catch (error: any) {
-      setIsTyping(false);
-      setCurrentAiActivity(null);
-      setStatusMessage('');
-      setStatusTool('');
-      setStreamingText('');
-      setStreamingSources([]);
+      setTimeout(() => {
+        setIsTyping(false);
+        setCurrentAiActivity(null);
+        setStatusMessage('');
+        setStatusTool('');
+        setStreamingText('');
+        setStreamingSources([]);
+      }, 300);
       console.error("Error editing user message:", error);
     }
   };
@@ -2073,7 +2124,12 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       </AnimatePresence>
 
       {/* Chat Area */}
-      <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-3 pt-3 pb-2 md:px-8 md:pt-4">
+      <div 
+        ref={scrollContainerRef} 
+        onScroll={handleScroll} 
+        className="flex-1 overflow-y-auto px-3 pt-3 pb-2 md:px-8 md:pt-4 scroll-smooth-manual"
+        style={{ scrollBehavior: 'auto', overflowAnchor: 'auto' }}
+      >
         {messages.length === 0 && !isTyping ? (
           <div className="flex flex-col min-h-full justify-end text-center pb-2 pt-4">
             <div className="mt-auto mb-2 flex flex-col items-center justify-center w-full max-w-5xl mx-auto">
@@ -2226,14 +2282,15 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
             />
 
             {/* Typing & Dynamic Status Indicator */}
-            <AnimatePresence>
+            <AnimatePresence mode="popLayout">
               {isTyping && (
                 <motion.div
-                  initial={{ opacity: 0, y: 14 }}
+                  layout="position"
+                  initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -6 }}
-                  transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-                  className="flex justify-start pt-2 w-full"
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="flex justify-start pt-2 w-full origin-bottom"
                 >
                   <div className="flex w-full items-start gap-3">
                     <div className="flex-1 max-w-[85%] sm:max-w-[88%] bg-[var(--glass-bg)] backdrop-blur-2xl border border-[var(--glass-border)] rounded-[24px] rounded-tl-[6px] px-5 py-4 shadow-sm flex flex-col relative mt-1 text-[var(--text)]">

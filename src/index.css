@@ -10,6 +10,7 @@
 
 @layer base {
   :root {
+    --primary: #6366f1;
     --bg: #FAFAFC;
     --card: #FFFFFF;
     --hover: rgba(0, 0, 0, 0.03);
@@ -67,6 +68,12 @@
 
   .h-dvh {
     height: 100dvh;
+  }
+
+  .scroll-smooth-manual {
+    scroll-behavior: auto !important;
+    overflow-anchor: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   h1, h2, h3, h4, h5, h6 {

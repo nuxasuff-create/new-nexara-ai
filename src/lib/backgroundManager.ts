@@ -170,7 +170,7 @@ export function finishBackgroundGeneration(previewText?: string) {
         const notif = new Notification('Nexara AI', {
           body: cleanPreview,
           icon: '/favicon.ico',
-          tag: 'nexara-ai-response',
+          tag: 'ainexara-response',
           renotify: true,
           requireInteraction: false
         } as any);

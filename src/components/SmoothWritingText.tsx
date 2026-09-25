@@ -27,9 +27,9 @@ function SmoothWritingTextComponent({ text = "", isStreaming = false }: SmoothWr
   const fullTextRef = useRef(text);
 
   // Constants for pacing
-  const MIN_DELAY = 4; // Fast catch-up speed (ms)
-  const MAX_DELAY = 22; // Natural base speed (ms)
-  const CATCHUP_THRESHOLD = 40; // chars
+  const MIN_DELAY = 15; // Moderate catch-up speed (ms)
+  const MAX_DELAY = 55; // Natural base speed (ms) - Slower for a more "organic" feel
+  const CATCHUP_THRESHOLD = 80; // chars
 
   useEffect(() => {
     // Determine what's new since the last fullTextRef update
@@ -74,9 +74,15 @@ function SmoothWritingTextComponent({ text = "", isStreaming = false }: SmoothWr
     }
 
     // Add a tiny bit of random "human" jitter (±15% of delay)
-    // This makes it feel less like a mechanical timer
     const jitter = baseDelay * 0.15;
-    const finalDelay = baseDelay + (Math.random() * jitter * 2 - jitter);
+    let finalDelay = baseDelay + (Math.random() * jitter * 2 - jitter);
+
+    // Natural pauses for punctuation
+    if (char === '.' || char === '?' || char === '!') {
+      finalDelay += 180;
+    } else if (char === ',' || char === ';' || char === ':') {
+      finalDelay += 80;
+    }
 
     timerRef.current = setTimeout(processQueue, Math.max(1, finalDelay));
   }
@@ -105,25 +111,22 @@ function SmoothWritingTextComponent({ text = "", isStreaming = false }: SmoothWr
 
         .typing-cursor {
           display: inline-block;
-          width: 6px;
+          width: 2px;
           height: 1.1em;
-          background: linear-gradient(135deg, #818cf8 0%, #c084fc 100%);
-          margin-left: 4px;
-          vertical-align: -0.15em;
-          border-radius: 9999px;
-          animation: typingPulse 0.8s ease-in-out infinite;
-          box-shadow: 0 0 8px rgba(129, 140, 248, 0.4);
-          will-change: opacity, transform;
+          background: var(--primary);
+          margin-left: 2px;
+          vertical-align: middle;
+          animation: typingPulse 0.8s steps(2, start) infinite;
+          box-shadow: 0 0 8px var(--primary);
+          will-change: opacity;
         }
 
         @keyframes typingPulse {
           0%, 100% {
             opacity: 1;
-            transform: scaleY(1);
           }
           50% {
-            opacity: 0.3;
-            transform: scaleY(0.85);
+            opacity: 0;
           }
         }
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MessageSquare, LayoutDashboard, Settings, Sparkles, X, Plus, MessageCircle, Pencil, Trash2, Check, Shield, History, Search, Menu } from 'lucide-react';
+import { MessageSquare, LayoutDashboard, Settings, Sparkles, X, Plus, MessageCircle, Pencil, Trash2, Check, Shield, History, Search, Menu, Globe } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { collection, query, orderBy, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore';
@@ -168,10 +168,15 @@ export default function Sidebar({ isOpen, onClose, currentScreen, setCurrentScre
 
           {/* Main Logo Header */}
           <div className="p-5 flex items-center justify-between border-b border-[var(--glass-border)] md:border-none relative">
-            <div className="flex items-center gap-3">
+            <a 
+              href="https://ainexara.com" 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="flex items-center gap-3 hover:opacity-80 transition-opacity"
+            >
               <img src="/logo.png" alt="Nexara AI" className="w-8 h-8 object-contain drop-shadow-md" />
               <span className="font-display font-semibold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-[var(--text)] to-[var(--text-muted)]">Nexara AI</span>
-            </div>
+            </a>
             <button 
               onClick={onClose} 
               className="p-2 text-[var(--text-muted)] hover:text-primary rounded-[10px] hover:bg-[var(--hover)] transition-all active:scale-95"
@@ -324,7 +329,7 @@ export default function Sidebar({ isOpen, onClose, currentScreen, setCurrentScre
             </div>
           </div>
           {/* Footer */}
-          <footer className="p-4 border-t border-[var(--glass-border)] bg-[var(--sidebar)]/50 backdrop-blur-md">
+          <footer className="p-4 border-t border-[var(--glass-border)] bg-[var(--sidebar)]/50 backdrop-blur-md space-y-3">
             <div className="relative overflow-hidden rounded-[14px] p-4 border border-[var(--glass-border)] bg-gradient-to-br from-indigo-500/10 via-purple-500/10 to-pink-500/10 cursor-pointer hover:shadow-lg hover:shadow-primary/10 hover:-translate-y-0.5 transition-all duration-300 group" onClick={onUpgradeClick}>
               {/* Animated glow */}
               <div className="absolute inset-0 bg-gradient-to-r from-primary/0 via-primary/5 to-primary/0 opacity-0 group-hover:opacity-100 group-hover:translate-x-full transition-all duration-1000 -skew-x-12" />
