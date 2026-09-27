@@ -8,11 +8,13 @@ import DictionaryScreen from './screens/DictionaryScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import LoginScreen from './screens/LoginScreen';
 import AdminScreen from './screens/AdminScreen';
+import PrivacyScreen from './screens/PrivacyScreen';
+import TermsScreen from './screens/TermsScreen';
 import UpgradeModal from './components/UpgradeModal';
 import OnboardingModal from './components/OnboardingModal';
 import PageTransition from './components/PageTransition';
 import SEOHead from './components/SEOHead';
-import { Plus, AlertCircle, Lock, X } from 'lucide-react';
+import { Plus, AlertCircle, Lock, X, ShieldAlert } from 'lucide-react';
 import { onAuthStateChanged, User } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from './firebase';
@@ -62,6 +64,8 @@ export default function App() {
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [isOnboardingModalOpen, setIsOnboardingModalOpen] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [activeSearchData, setActiveSearchData] = useState<{ sources: any[], searchImages: any[] } | null>(null);
+  const [activeTab, setActiveTab] = useState<'answer' | 'links' | 'images'>('answer');
   const { t, language, setLanguage } = useLanguage();
 
   useEffect(() => {
@@ -265,6 +269,22 @@ export default function App() {
   }
 
   const renderScreen = () => {
+    const chatScreen = (
+      <ChatScreen 
+        initialPrompt={initialPrompt} 
+        clearInitialPrompt={() => setInitialPrompt('')} 
+        currentChatId={currentChatId}
+        setCurrentChatId={setCurrentChatId}
+        setCurrentScreen={navigateToScreen}
+        isFocusMode={isFocusMode}
+        onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+        activeSearchData={activeSearchData}
+        setActiveSearchData={setActiveSearchData}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+      />
+    );
+
     switch (currentScreen) {
       case 'dashboard':
         return <DashboardScreen onToolClick={handleToolClick} onUpgradeClick={() => setIsUpgradeModalOpen(true)} userStatus={userStatus} />;
@@ -292,20 +312,39 @@ export default function App() {
           />
         );
       case 'settings':
-        return <SettingsScreen toggleTheme={toggleTheme} isDark={isDark} onOpenOnboarding={() => setIsOnboardingModalOpen(true)} />;
+        return <SettingsScreen toggleTheme={toggleTheme} isDark={isDark} onOpenOnboarding={() => setIsOnboardingModalOpen(true)} setCurrentScreen={navigateToScreen} />;
       case 'admin':
+        if (!user || !isAdmin) {
+          return (
+            <div className="flex flex-col items-center justify-center h-full p-6 text-center max-w-lg mx-auto animate-in fade-in duration-300">
+              <div className="w-16 h-16 rounded-3xl bg-red-500/10 text-red-500 flex items-center justify-center mb-4 border border-red-500/20 shadow-lg shadow-red-500/5">
+                <ShieldAlert size={32} />
+              </div>
+              <h2 className="text-2xl font-bold font-display text-[var(--text)] mb-2">
+                {language === 'bn' ? 'অ্যাক্সেস সংরক্ষিত' : 'Administrator Access Required'}
+              </h2>
+              <p className="text-[var(--text-muted)] text-sm mb-6 leading-relaxed">
+                {language === 'bn' 
+                  ? 'এই অ্যাডমিন প্যানেলটি শুধুমাত্র ভেরিফায়েড সিস্টেম অ্যাডমিনিস্ট্রেটরদের জন্য সংরক্ষিত। অনুগ্রহ করে অনুমোদিত অ্যাডমিন অ্যাকাউন্ট দিয়ে সাইন ইন করুন।'
+                  : 'This admin console is strictly restricted to verified system administrators. Please sign in with an authorized administrator account to continue.'}
+              </p>
+              <button
+                onClick={() => navigateToScreen('chat')}
+                className="px-6 py-2.5 rounded-full bg-gradient-to-r from-primary to-purple-600 text-white font-medium text-sm hover:opacity-95 transition-opacity shadow-md"
+              >
+                {language === 'bn' ? 'চ্যাটে ফিরে যান' : 'Return to Chat'}
+              </button>
+            </div>
+          );
+        }
         return <AdminScreen />;
+      case 'privacy':
+        return <PrivacyScreen onBack={() => navigateToScreen('settings')} />;
+      case 'terms':
+        return <TermsScreen onBack={() => navigateToScreen('settings')} />;
       case 'chat':
       default:
-        return <ChatScreen 
-                 initialPrompt={initialPrompt} 
-                 clearInitialPrompt={() => setInitialPrompt('')} 
-                 currentChatId={currentChatId}
-                 setCurrentChatId={setCurrentChatId}
-                 setCurrentScreen={navigateToScreen}
-                 isFocusMode={isFocusMode}
-                 onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
-               />;
+        return chatScreen;
     }
   };
 
@@ -321,6 +360,10 @@ export default function App() {
         return t.settings;
       case 'admin':
         return 'Admin Panel';
+      case 'privacy':
+        return t.privacyPolicy;
+      case 'terms':
+        return t.termsOfService;
       case 'chat':
       default:
         return t.novaAiChat;
@@ -374,6 +417,9 @@ export default function App() {
           user={user}
           isFocusMode={isFocusMode}
           onToggleFocusMode={() => setIsFocusMode(!isFocusMode)}
+          activeSearchData={activeSearchData}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
         />
         
         <main className="flex-1 relative overflow-hidden bg-transparent">

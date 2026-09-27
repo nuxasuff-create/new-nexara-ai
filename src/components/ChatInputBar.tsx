@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowUp, Plus, X, Image as ImageIcon, Mic, Square } from 'lucide-react';
+import { ArrowUp, Plus, X, Image as ImageIcon, Mic, Square, Reply } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 export interface ChatInputBarProps {
-  onSend: (text: string) => void;
+  onSend: (text: string, quotedText?: string) => void;
   isTyping: boolean;
   language: string;
   currentChatId: string | null;
@@ -26,6 +26,8 @@ export interface ChatInputBarProps {
   onStopGeneration?: () => void;
   selectedModel?: string;
   onModelChange?: (model: string) => void;
+  replyingToText?: string | null;
+  onCancelReply?: () => void;
 }
 
 function ChatInputBarComponent({
@@ -40,12 +42,16 @@ function ChatInputBarComponent({
   onAddImages,
   onRemoveImage,
   onClearImages,
+  isWebSearchActive,
+  setIsWebSearchActive,
   inputRef,
   voiceTranscript,
   isListening,
   isSpeechSupported,
   toggleListening,
-  onStopGeneration
+  onStopGeneration,
+  replyingToText,
+  onCancelReply
 }: ChatInputBarProps) {
   const [text, setText] = useState(initialPrompt || '');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -87,8 +93,9 @@ function ChatInputBarComponent({
   const handleSend = () => {
     const trimmed = text.trim();
     if ((!trimmed && selectedImages.length === 0) || isTyping) return;
-    onSend(trimmed);
+    onSend(trimmed, replyingToText || undefined);
     setText('');
+    onCancelReply?.();
     if (inputRef.current) {
       inputRef.current.style.height = 'auto';
     }
@@ -152,6 +159,46 @@ function ChatInputBarComponent({
             </div>
           </div>
         )}
+
+        {/* Quote Preview Bar (WhatsApp/Telegram style) */}
+        <AnimatePresence>
+          {replyingToText && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, height: 0 }}
+              animate={{ opacity: 1, y: 0, height: 'auto' }}
+              exit={{ opacity: 0, y: 8, height: 0 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="w-full mb-2 overflow-hidden"
+            >
+              <div className="relative flex items-center justify-between gap-3 bg-[var(--card)]/95 backdrop-blur-2xl border border-[var(--border)] rounded-[20px] px-4 py-2.5 shadow-lg border-l-0 overflow-hidden group">
+                {/* Vertical Gradient Line (Purple #7C5CFC → Pink #E345A8) */}
+                <div 
+                  className="absolute left-0 top-0 bottom-0 w-[4px] rounded-l-full" 
+                  style={{ background: 'linear-gradient(180deg, #7C5CFC 0%, #E345A8 100%)' }}
+                />
+
+                <div className="flex flex-col min-w-0 flex-1 pl-1">
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-transparent bg-clip-text bg-gradient-to-r from-[#7C5CFC] to-[#E345A8]">
+                    <Reply size={12} className="rotate-180 text-[#7C5CFC]" />
+                    <span>{language === 'bn' ? 'উদ্ধৃত অংশের উত্তর:' : 'Replying to quote:'}</span>
+                  </div>
+                  <p className="text-xs sm:text-[13px] text-[var(--text)] line-clamp-2 italic font-normal mt-0.5 leading-snug">
+                    "{replyingToText}"
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={onCancelReply}
+                  className="p-1.5 rounded-full text-[var(--text-muted)] hover:text-white hover:bg-red-500/80 transition-colors flex-shrink-0"
+                  title={language === 'bn' ? 'উদ্ধৃতি বাতিল করুন' : 'Cancel quote'}
+                >
+                  <X size={15} strokeWidth={2.5} />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         <div className="w-full relative flex items-center bg-[var(--card)]/90 backdrop-blur-2xl border border-[var(--border)] rounded-[28px] p-1.5 shadow-xl focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/10 transition-all duration-300 mb-4">
           <input

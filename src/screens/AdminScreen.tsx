@@ -1,7 +1,11 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { collection, query, onSnapshot, doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { Shield, Users, Key, Plus, Trash2, Check, X, Search, Activity, UserCog, Database } from 'lucide-react';
+import { db, auth } from '../firebase';
+import { 
+  Shield, Users, Key, Plus, Trash2, Check, X, Search, Activity, UserCog, 
+  Database, Lock, Eye, EyeOff, RefreshCw, AlertCircle, ShieldCheck, 
+  Server, Sparkles, CheckCircle2, Sliders 
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 
@@ -14,8 +18,17 @@ interface UserData {
   photoURL?: string;
 }
 
+interface VaultSetting {
+  provider: string;
+  masked_key: string;
+  status: 'active' | 'fallback' | 'inactive';
+  has_custom_key: boolean;
+  is_env_fallback: boolean;
+  updated_at: string;
+}
+
 export default function AdminScreen() {
-  const [activeTab, setActiveTab] = useState<'users' | 'admins' | 'apikeys'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'admins' | 'apikeys' | 'advanced'>('users');
   const [users, setUsers] = useState<UserData[]>([]);
   const [admins, setAdmins] = useState<string[]>([]);
   const [apiKeys, setApiKeys] = useState<string[]>([]);
@@ -23,6 +36,16 @@ export default function AdminScreen() {
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [newApiKey, setNewApiKey] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Advanced Vault Settings State
+  const [vaultSettings, setVaultSettings] = useState<VaultSetting[]>([]);
+  const [isLoadingVault, setIsLoadingVault] = useState(false);
+  const [vaultFeedback, setVaultFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [inputKeys, setInputKeys] = useState<Record<string, string>>({});
+  const [showKeyMap, setShowKeyMap] = useState<Record<string, boolean>>({});
+  const [newCustomProvider, setNewCustomProvider] = useState('');
+  const [newCustomKey, setNewCustomKey] = useState('');
+  const [newCustomStatus, setNewCustomStatus] = useState<'active' | 'fallback' | 'inactive'>('active');
 
   // Fetch users
   useEffect(() => {
@@ -146,6 +169,162 @@ export default function AdminScreen() {
     }
   };
 
+  // ==========================================
+  // VAULT & ADVANCED SETTINGS HANDLERS
+  // ==========================================
+
+  const fetchVaultSettings = useCallback(async () => {
+    setIsLoadingVault(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) return;
+      const res = await fetch('/api/admin/keys', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setVaultSettings(data.settings || []);
+      }
+    } catch (err) {
+      console.error("[Vault] Error fetching keys:", err);
+    } finally {
+      setIsLoadingVault(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'advanced') {
+      fetchVaultSettings();
+    }
+  }, [activeTab, fetchVaultSettings]);
+
+  const handleSaveVaultKey = async (provider: string, statusOverride?: 'active' | 'fallback' | 'inactive') => {
+    const rawKey = inputKeys[provider]?.trim();
+    if (!rawKey) return;
+
+    setVaultFeedback(null);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) {
+        setVaultFeedback({ type: 'error', message: 'Authentication required. Please sign in again.' });
+        return;
+      }
+
+      const res = await fetch('/api/admin/keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          provider,
+          apiKey: rawKey,
+          status: statusOverride || 'active'
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setVaultFeedback({ 
+          type: 'success', 
+          message: data.message || `API key for ${provider.toUpperCase()} encrypted with AES-256-GCM and saved successfully.` 
+        });
+        setInputKeys(prev => ({ ...prev, [provider]: '' }));
+        fetchVaultSettings();
+      } else {
+        setVaultFeedback({ type: 'error', message: data.error || 'Failed to save encrypted key.' });
+      }
+    } catch (err: any) {
+      setVaultFeedback({ type: 'error', message: err.message || 'Network error saving key.' });
+    }
+  };
+
+  const handleUpdateVaultStatus = async (provider: string, status: 'active' | 'fallback' | 'inactive') => {
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) return;
+      const res = await fetch(`/api/admin/keys/${encodeURIComponent(provider)}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+      if (res.ok) {
+        fetchVaultSettings();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleDeleteVaultKey = async (provider: string) => {
+    if (!confirm(`Are you sure you want to remove the custom encrypted key for ${provider.toUpperCase()}? The system will revert to the environment default fallback.`)) return;
+
+    setVaultFeedback(null);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) return;
+
+      const res = await fetch(`/api/admin/keys/${encodeURIComponent(provider)}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setVaultFeedback({ type: 'success', message: data.message });
+        fetchVaultSettings();
+      } else {
+        setVaultFeedback({ type: 'error', message: data.error || 'Failed to delete key.' });
+      }
+    } catch (err: any) {
+      setVaultFeedback({ type: 'error', message: err.message || 'Network error' });
+    }
+  };
+
+  const handleAddCustomProvider = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCustomProvider.trim() || !newCustomKey.trim()) return;
+
+    const providerNorm = newCustomProvider.trim().toLowerCase();
+    setInputKeys(prev => ({ ...prev, [providerNorm]: newCustomKey.trim() }));
+
+    setVaultFeedback(null);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) return;
+
+      const res = await fetch('/api/admin/keys', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          provider: providerNorm,
+          apiKey: newCustomKey.trim(),
+          status: newCustomStatus
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setVaultFeedback({ 
+          type: 'success', 
+          message: data.message || `Provider ${providerNorm.toUpperCase()} added successfully.` 
+        });
+        setNewCustomProvider('');
+        setNewCustomKey('');
+        fetchVaultSettings();
+      } else {
+        setVaultFeedback({ type: 'error', message: data.error || 'Failed to add custom provider.' });
+      }
+    } catch (err: any) {
+      setVaultFeedback({ type: 'error', message: err.message || 'Network error' });
+    }
+  };
+
   const filteredUsers = useMemo(() => {
     return users.filter(user => 
       user.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -221,6 +400,7 @@ export default function AdminScreen() {
               { id: 'users', label: 'User Directory', icon: Users },
               { id: 'admins', label: 'Access Control', icon: Shield },
               { id: 'apikeys', label: 'Integrations', icon: Database },
+              { id: 'advanced', label: 'Advanced Settings (Vault)', icon: Sliders },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -521,6 +701,265 @@ export default function AdminScreen() {
                           </tbody>
                         </table>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'advanced' && (
+                  <div className="space-y-8 animate-in fade-in duration-300">
+                    {/* Header with Title and Action */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <h2 className="text-2xl font-bold font-display text-[var(--text)] tracking-tight flex items-center gap-3">
+                          <Sliders className="text-primary" size={24} />
+                          Advanced API Settings & Hardware Vault
+                        </h2>
+                        <p className="text-sm text-[var(--text-muted)] mt-1">
+                          Manage and override AI model credentials via encrypted database storage. All keys are encrypted with AES-256-GCM.
+                        </p>
+                      </div>
+                      <button
+                        onClick={fetchVaultSettings}
+                        disabled={isLoadingVault}
+                        className="px-4 py-2.5 rounded-[16px] bg-[var(--card)] hover:bg-[var(--hover)] border border-[var(--border)] text-[var(--text)] text-sm font-medium transition-all flex items-center gap-2 self-start sm:self-auto shadow-sm"
+                      >
+                        <RefreshCw size={15} className={isLoadingVault ? 'animate-spin text-primary' : ''} />
+                        Refresh Vault
+                      </button>
+                    </div>
+
+                    {/* Feedback Toast */}
+                    {vaultFeedback && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`p-4 rounded-[18px] text-sm flex items-center justify-between gap-3 border ${
+                          vaultFeedback.type === 'success'
+                            ? 'bg-green-500/10 border-green-500/30 text-green-400'
+                            : 'bg-red-500/10 border-red-500/30 text-red-400'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          {vaultFeedback.type === 'success' ? (
+                            <CheckCircle2 size={18} className="shrink-0 text-green-500" />
+                          ) : (
+                            <AlertCircle size={18} className="shrink-0 text-red-500" />
+                          )}
+                          <span>{vaultFeedback.message}</span>
+                        </div>
+                        <button
+                          onClick={() => setVaultFeedback(null)}
+                          className="p-1 hover:opacity-75 transition-opacity"
+                        >
+                          <X size={16} />
+                        </button>
+                      </motion.div>
+                    )}
+
+                    {/* Security Guarantee Banner */}
+                    <div className="p-5 rounded-[22px] bg-gradient-to-r from-primary/10 via-purple-500/5 to-transparent border border-primary/20 flex flex-col md:flex-row items-start md:items-center gap-4">
+                      <div className="w-12 h-12 rounded-[16px] bg-primary/20 text-primary flex items-center justify-center shrink-0 border border-primary/30 shadow-sm">
+                        <ShieldCheck size={26} />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-sm text-[var(--text)]">End-to-End Cryptographic Protection</span>
+                          <span className="text-[10px] uppercase font-bold tracking-widest px-2.5 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30">
+                            AES-256-GCM Standard
+                          </span>
+                        </div>
+                        <p className="text-xs text-[var(--text-muted)] mt-1 leading-relaxed">
+                          Keys stored in this console are never kept in plain text. They are encrypted using your master key with 96-bit initialization vectors and 128-bit authentication tags. Decryption is performed strictly on the server during inference.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Provider Cards Grid */}
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      {[
+                        {
+                          id: 'xkiro',
+                          name: 'xKiro AI (Qwen)',
+                          models: 'Qwen 3.5, Omni Vision, DeepSeek R1',
+                          description: 'Primary visual reasoning, tool execution, and default conversational intelligence.',
+                          color: 'from-blue-500/20 to-indigo-500/10',
+                          border: 'border-blue-500/30'
+                        },
+                        {
+                          id: 'gemini',
+                          name: 'Google Gemini',
+                          models: 'Gemini 2.5 Flash, 1.5 Flash',
+                          description: 'High-speed multimodal vision analysis and resilient intelligence fallback engine.',
+                          color: 'from-amber-500/20 to-orange-500/10',
+                          border: 'border-amber-500/30'
+                        },
+                        {
+                          id: 'groq',
+                          name: 'Groq Cloud',
+                          models: 'Llama 3.3 70B, Llama 3.1 8B',
+                          description: 'Ultra-fast inference engine for low-latency text responses and summarization.',
+                          color: 'from-purple-500/20 to-pink-500/10',
+                          border: 'border-purple-500/30'
+                        }
+                      ].map((prov) => {
+                        const setting = vaultSettings.find(s => s.provider === prov.id);
+                        const isCustom = setting?.has_custom_key;
+                        const isEnv = setting?.is_env_fallback;
+                        const status = setting?.status || 'fallback';
+                        const isVisible = showKeyMap[prov.id];
+                        const currentInput = inputKeys[prov.id] || '';
+
+                        return (
+                          <div
+                            key={prov.id}
+                            className="bg-[var(--card)]/60 backdrop-blur-md border border-[var(--border)] rounded-[26px] p-6 flex flex-col justify-between shadow-sm hover:shadow-md transition-all relative overflow-hidden"
+                          >
+                            <div className="space-y-4">
+                              {/* Card Top */}
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <h3 className="font-bold text-lg text-[var(--text)]">{prov.name}</h3>
+                                  <p className="text-xs text-[var(--text-muted)] mt-0.5">{prov.models}</p>
+                                </div>
+                                <span
+                                  className={`text-[10px] uppercase font-bold tracking-widest px-2.5 py-1 rounded-full border flex items-center gap-1.5 shrink-0 ${
+                                    status === 'active' && isCustom
+                                      ? 'bg-green-500/10 text-green-400 border-green-500/30'
+                                      : isEnv
+                                      ? 'bg-purple-500/10 text-purple-400 border-purple-500/30'
+                                      : 'bg-zinc-500/10 text-zinc-400 border-zinc-500/30'
+                                  }`}
+                                >
+                                  {status === 'active' && isCustom && (
+                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                                  )}
+                                  {status === 'active' && isCustom
+                                    ? 'Active (Vault)'
+                                    : isEnv
+                                    ? 'Fallback (.env)'
+                                    : 'Inactive'}
+                                </span>
+                              </div>
+
+                              <p className="text-xs text-[var(--text-muted)] leading-relaxed">
+                                {prov.description}
+                              </p>
+
+                              {/* Active Key Preview */}
+                              <div className="p-3.5 rounded-[18px] bg-[var(--bg)]/80 border border-[var(--border)]">
+                                <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)] mb-1">
+                                  <span>Current Effective Key</span>
+                                  <span>{isCustom ? 'Custom Stored' : (isEnv ? 'Environment' : 'Unset')}</span>
+                                </div>
+                                <div className="font-mono text-xs font-semibold text-[var(--text)] tracking-wider">
+                                  {setting?.masked_key || '••••••••••••••••'}
+                                </div>
+                              </div>
+
+                              {/* Input Section */}
+                              <div className="space-y-2 pt-2">
+                                <label className="text-xs font-semibold text-[var(--text)]">
+                                  Set New Key (Encrypted in Vault)
+                                </label>
+                                <div className="relative">
+                                  <input
+                                    type={isVisible ? 'text' : 'password'}
+                                    value={currentInput}
+                                    onChange={(e) => setInputKeys(prev => ({ ...prev, [prov.id]: e.target.value }))}
+                                    placeholder={prov.id === 'groq' ? 'gsk_...' : (prov.id === 'gemini' ? 'AIzaSy...' : 'sk-xt-...')}
+                                    className="w-full bg-[var(--bg)] border border-[var(--border)] rounded-[16px] px-3.5 py-2.5 text-xs text-[var(--text)] font-mono focus:border-primary focus:outline-none transition-colors pr-10"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowKeyMap(prev => ({ ...prev, [prov.id]: !prev[prov.id] }))}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text)] transition-colors p-1"
+                                  >
+                                    {isVisible ? <EyeOff size={15} /> : <Eye size={15} />}
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Status Selector */}
+                              <div className="flex items-center gap-2 pt-1">
+                                <span className="text-xs text-[var(--text-muted)]">Mode:</span>
+                                {(['active', 'fallback', 'inactive'] as const).map((s) => (
+                                  <button
+                                    key={s}
+                                    type="button"
+                                    onClick={() => handleUpdateVaultStatus(prov.id, s)}
+                                    className={`text-[11px] px-2.5 py-1 rounded-full font-medium capitalize border transition-all ${
+                                      status === s
+                                        ? 'bg-primary/20 text-primary border-primary/40 font-bold'
+                                        : 'bg-[var(--bg)] text-[var(--text-muted)] border-[var(--border)] hover:text-[var(--text)]'
+                                    }`}
+                                  >
+                                    {s}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Card Actions */}
+                            <div className="pt-6 space-y-2">
+                              <button
+                                type="button"
+                                onClick={() => handleSaveVaultKey(prov.id, 'active')}
+                                disabled={!currentInput.trim()}
+                                className="w-full py-2.5 rounded-[16px] bg-gradient-to-r from-primary to-purple-600 hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-2"
+                              >
+                                <Lock size={13} />
+                                Encrypt & Update Key
+                              </button>
+
+                              {isCustom && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteVaultKey(prov.id)}
+                                  className="w-full py-2 rounded-[16px] text-red-400 hover:bg-red-500/10 border border-transparent hover:border-red-500/20 text-xs font-medium transition-all"
+                                >
+                                  Revert to .env Default
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Add Custom Provider */}
+                    <div className="p-6 rounded-[26px] bg-[var(--card)]/40 border border-[var(--border)]">
+                      <h3 className="text-base font-bold text-[var(--text)] flex items-center gap-2 mb-2">
+                        <Plus size={18} className="text-primary" />
+                        Add Custom Provider Key
+                      </h3>
+                      <p className="text-xs text-[var(--text-muted)] mb-4">
+                        Register additional model credentials (e.g. Anthropic, DeepSeek, OpenAI) into the AES-256-GCM vault.
+                      </p>
+
+                      <form onSubmit={handleAddCustomProvider} className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <input
+                          type="text"
+                          value={newCustomProvider}
+                          onChange={(e) => setNewCustomProvider(e.target.value)}
+                          placeholder="Provider slug (e.g. deepseek)"
+                          className="bg-[var(--bg)] border border-[var(--border)] rounded-[16px] px-3.5 py-2.5 text-xs text-[var(--text)] focus:border-primary focus:outline-none"
+                        />
+                        <input
+                          type="text"
+                          value={newCustomKey}
+                          onChange={(e) => setNewCustomKey(e.target.value)}
+                          placeholder="Secret API key"
+                          className="sm:col-span-2 bg-[var(--bg)] border border-[var(--border)] rounded-[16px] px-3.5 py-2.5 text-xs text-[var(--text)] font-mono focus:border-primary focus:outline-none"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!newCustomProvider.trim() || !newCustomKey.trim()}
+                          className="py-2.5 rounded-[16px] bg-primary hover:opacity-90 disabled:opacity-40 text-white text-xs font-bold transition-all shadow-sm flex items-center justify-center gap-1.5"
+                        >
+                          <Lock size={13} />
+                          Add to Vault
+                        </button>
+                      </form>
                     </div>
                   </div>
                 )}

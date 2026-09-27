@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Send, Mic, Bot, User as UserIcon, Volume2, Square, X, Sparkles, FileText, Search, Image as ImageIcon, History, Plus, Copy, Check, Download, ArrowDown, Edit2, RotateCcw, Globe, ExternalLink } from 'lucide-react';
+import { Send, Mic, Bot, User as UserIcon, Volume2, Square, X, Sparkles, FileText, Search, Image as ImageIcon, History, Plus, Copy, Check, Download, ArrowDown, Edit2, RotateCcw, Globe, ExternalLink, BookOpen, Reply } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -83,6 +83,11 @@ export interface GroundingSource {
   uri: string;
 }
 
+export interface SearchImage {
+  url: string;
+  sourceTitle: string;
+}
+
 interface Message {
   id: string;
   text: string;
@@ -90,8 +95,10 @@ interface Message {
   timestamp: Date;
   image?: string;
   images?: string[];
+  searchImages?: SearchImage[];
   sources?: GroundingSource[];
   searchQueries?: string[];
+  quotedText?: string;
 }
 
 interface ChatScreenProps {
@@ -102,9 +109,13 @@ interface ChatScreenProps {
   setCurrentScreen: (screen: string) => void;
   isFocusMode?: boolean;
   onToggleFocusMode?: () => void;
+  activeSearchData?: { sources: any[], searchImages: any[] } | null;
+  setActiveSearchData?: (data: { sources: any[], searchImages: any[] } | null) => void;
+  activeTab?: 'answer' | 'links' | 'images';
+  setActiveTab?: (tab: 'answer' | 'links' | 'images') => void;
 }
 
-const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBottom, toggleSpeech, handleCopy, onOpenPreview, onEditUserMessage, onRetryAiMessage, language }: {
+const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBottom, toggleSpeech, handleCopy, onOpenPreview, onEditUserMessage, onRetryAiMessage, onReplyToMessage, language }: {
   msg: Message,
   isCurrentlySpeaking: boolean,
   copiedId: string | null,
@@ -114,10 +125,13 @@ const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBo
   onOpenPreview?: (project: ArtifactProject, fileId?: string) => void,
   onEditUserMessage?: (msgId: string, newText: string) => void,
   onRetryAiMessage?: (aiMsgId: string) => void,
+  onReplyToMessage?: (quote: string) => void,
   language?: string
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(msg.text);
+
+  const hasSearchData = false; // Tabs moved to header
 
   // Extract structured file artifacts (code files / project bundles)
   const artifactProject = React.useMemo(() => {
@@ -184,6 +198,9 @@ const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBo
 
   return (
     <motion.div
+      id={`msg-${msg.id}`}
+      data-msg-id={msg.id}
+      data-sender={msg.sender}
       layout
       initial={{ opacity: 0, y: 16 }}
       animate={{ opacity: 1, y: 0 }}
@@ -201,11 +218,12 @@ const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBo
             className={`relative px-5 py-4 border ${
               msg.sender === 'user'
                 ? 'bg-gradient-to-br from-indigo-500 via-purple-500 to-indigo-600 text-white border-transparent rounded-[24px] rounded-tr-[6px] shadow-[0_8px_24px_rgba(99,102,241,0.25)]'
-                : 'bg-[var(--glass-bg)] backdrop-blur-md text-[var(--text)] border-[var(--glass-border)] rounded-[24px] rounded-tl-[6px] shadow-sm'
+                : 'bg-[var(--glass-bg)] backdrop-blur-md text-[var(--text)] border-[var(--glass-border)] rounded-[24px] rounded-tl-[6px] shadow-sm select-text'
             }`}
+            data-ai-bubble={msg.sender === 'ai' ? 'true' : undefined}
           >
-            {/* Images Grid */}
-            {(() => {
+            {/* Images Grid (Always visible for user or if not search data) */}
+            {!hasSearchData && (() => {
               const imagesToRender = (msg as any).images && (msg as any).images.length > 0 
                 ? (msg as any).images 
                 : (msg.image ? [msg.image] : []);
@@ -233,111 +251,111 @@ const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBo
                 </div>
               );
             })()}
+
             {msg.sender === 'user' ? (
-              <p className="leading-relaxed whitespace-pre-wrap break-words text-[15px] font-medium">{msg.text}</p>
+              <div>
+                {msg.quotedText && (
+                  <div className="mb-2.5 p-2.5 rounded-xl bg-black/25 border-l-[3.5px] border-white/90 text-xs text-white/95 italic backdrop-blur-xs flex flex-col gap-0.5 max-w-full select-none shadow-xs">
+                    <div className="flex items-center gap-1.5 text-[10px] font-bold text-white/85 not-italic uppercase tracking-wider">
+                      <Reply size={10} className="rotate-180" />
+                      <span>{language === 'bn' ? 'উদ্ধৃত অংশ' : 'Replying to'}</span>
+                    </div>
+                    <p className="line-clamp-2 text-white/95 leading-relaxed font-normal text-[12px] sm:text-[13px]">
+                      "{msg.quotedText}"
+                    </p>
+                  </div>
+                )}
+                <p className="leading-relaxed whitespace-pre-wrap break-words text-[15px] font-medium">{msg.text}</p>
+              </div>
             ) : (
-              <div className="markdown-body leading-relaxed max-w-none text-[var(--text)] break-words text-[15px]">
-                <ReactMarkdown 
-                  remarkPlugins={[remarkGfm]}
-                  components={{
-                    a({ node, children, href, ...props }: any) {
-                      return (
-                        <a 
-                          {...props} 
-                          href={href}
-                          target="_blank" 
-                          rel="noopener noreferrer" 
-                          className="text-primary underline font-semibold hover:opacity-80 transition-opacity break-all inline-flex items-center gap-1"
-                        >
-                          {children}
-                        </a>
-                      );
-                    },
-                    img(props) {
-                      return <img {...props} className="max-w-full h-auto rounded-xl my-4 shadow-md border border-[var(--border)]" loading="lazy" />;
-                    },
-                    code({node, inline, className, children, ...props}: any) {
-                      const match = /language-(\w+)/.exec(className || '')
-                      const isDark = document.documentElement.className.includes('dark')
-                      return !inline && match ? (
-                        <div className="my-3 overflow-hidden rounded-xl shadow-md border border-[var(--border)]">
-                          <SyntaxHighlighter
-                            {...props}
-                            children={String(children).replace(/\n$/, '')}
-                            style={isDark ? vscDarkPlus : vs as any}
-                            language={match[1]}
-                            PreTag="div"
-                            customStyle={{ margin: 0, padding: '0.85rem', fontSize: '0.825rem' }}
-                          />
-                        </div>
-                      ) : (
-                        <code {...props} className={`${className} bg-[var(--text)]/10 text-primary font-mono font-bold px-1.5 py-0.5 rounded-md`}>
-                          {children}
-                        </code>
-                      )
-                    }
-                  }}
-                >
-                  {msg.text}
-                </ReactMarkdown>
-
-                {/* Inline Dynamic File Artifact Card */}
-                {artifactProject && onOpenPreview && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.98 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ duration: 0.35, ease: "easeOut" }}
-                  >
-                    <FileArtifactCard 
-                      project={artifactProject} 
-                      onOpenPreview={onOpenPreview} 
-                    />
-                  </motion.div>
-                )}
-
-                {/* Google Search Grounding Sources */}
-                {msg.sources && msg.sources.length > 0 && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="mt-3.5 pt-3 border-t border-[var(--glass-border)] w-full"
-                  >
-                    <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-[var(--text-muted)]">
-                      <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24">
-                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#FBBC05"/>
-                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" fill="#EA4335"/>
-                      </svg>
-                      <span>{language === 'bn' ? 'গুগল সার্চ সূত্র (Google Search Grounding)' : 'Google Search Grounding Sources'}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {msg.sources.map((src, i) => {
-                        let domain = "";
-                        try {
-                          domain = new URL(src.uri).hostname.replace(/^www\./, "");
-                        } catch {
-                          domain = "Web Source";
+              <div className="min-h-[20px]">
+                <div className="markdown-body leading-relaxed max-w-none text-[var(--text)] break-words text-[15px] animate-in fade-in duration-300">
+                  <ReactMarkdown 
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        a({ node, children, href, ...props }: any) {
+                          return (
+                            <a 
+                              {...props} 
+                              href={href}
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              className="text-primary underline font-semibold hover:opacity-80 transition-opacity break-all inline-flex items-center gap-1"
+                            >
+                              {children}
+                            </a>
+                          );
+                        },
+                        img(props) {
+                          return <img {...props} className="max-w-full h-auto rounded-xl my-4 shadow-md border border-[var(--border)]" loading="lazy" />;
+                        },
+                        code({node, inline, className, children, ...props}: any) {
+                          const match = /language-(\w+)/.exec(className || '')
+                          const isDark = document.documentElement.className.includes('dark')
+                          return !inline && match ? (
+                            <div className="my-3 overflow-hidden rounded-xl shadow-md border border-[var(--border)]">
+                              <SyntaxHighlighter
+                                {...props}
+                                children={String(children).replace(/\n$/, '')}
+                                style={isDark ? vscDarkPlus : vs as any}
+                                language={match[1]}
+                                PreTag="div"
+                                customStyle={{ margin: 0, padding: '0.85rem', fontSize: '0.825rem' }}
+                              />
+                            </div>
+                          ) : (
+                            <code {...props} className={`${className} bg-[var(--text)]/10 text-primary font-mono font-bold px-1.5 py-0.5 rounded-md`}>
+                              {children}
+                            </code>
+                          )
                         }
-                        return (
-                          <a
-                            key={i}
-                            href={src.uri}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-[var(--card)] hover:bg-[var(--hover)] border border-[var(--border)] text-[var(--text)] hover:text-primary transition-all max-w-[240px] shadow-xs group/src"
-                            title={src.title || src.uri}
-                          >
-                            <Globe size={12} className="text-primary flex-shrink-0" />
-                            <span className="truncate font-medium">{src.title || domain}</span>
-                            <ExternalLink size={10} className="text-[var(--text-muted)] group-hover/src:text-primary flex-shrink-0" />
-                          </a>
-                        );
-                      })}
-                    </div>
-                  </motion.div>
-                )}
+                      }}
+                    >
+                    {msg.text}
+                  </ReactMarkdown>
+
+                  {/* Inline Dynamic File Artifact Card */}
+                  {artifactProject && onOpenPreview && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      transition={{ duration: 0.35, ease: "easeOut" }}
+                      className="mt-4"
+                    >
+                      <FileArtifactCard 
+                        project={artifactProject} 
+                        onOpenPreview={onOpenPreview} 
+                      />
+                    </motion.div>
+                  )}
+
+                  {/* Original Sources */}
+                  {msg.sources && msg.sources.length > 0 && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3 }}
+                      className="mt-3.5 pt-3 border-t border-[var(--glass-border)] w-full"
+                    >
+                      <div className="flex items-center gap-1.5 mb-2 text-xs font-semibold text-[var(--text-muted)]">
+                        <Globe size={13} className="text-primary" />
+                        <span>{language === 'bn' ? 'তথ্যসূত্র' : 'Sources'}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {msg.sources.map((src, i) => {
+                          let domain = "";
+                          try { domain = new URL(src.uri).hostname.replace(/^www\./, ""); } catch { domain = "Web Source"; }
+                          return (
+                            <a key={i} href={src.uri} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs bg-[var(--card)] hover:bg-[var(--hover)] border border-[var(--border)] text-[var(--text)] hover:text-primary transition-all max-w-[240px] shadow-xs group/src">
+                              <Globe size={12} className="text-primary flex-shrink-0" />
+                              <span className="truncate font-medium">{src.title || domain}</span>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  )}
+                </div>
               </div>
             )}
           </motion.div>
@@ -395,6 +413,18 @@ const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBo
                 {copiedId === msg.id ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
               </button>
 
+              {/* Reply button for AI messages */}
+              {msg.sender === 'ai' && (
+                <button
+                  type="button"
+                  onClick={() => onReplyToMessage?.(msg.text)}
+                  className="p-1.5 rounded-[6px] transition-colors text-[var(--text-muted)] hover:text-[var(--text)] hover:bg-[var(--hover)]"
+                  title={language === 'bn' ? 'উদ্ধৃতি সহ উত্তর দিন' : 'Reply to message'}
+                >
+                  <Reply size={12} className="rotate-180" />
+                </button>
+              )}
+
               {msg.sender === 'ai' && (
                 <button
                   type="button"
@@ -416,6 +446,7 @@ const MessageItem = React.memo(({ msg, isCurrentlySpeaking, copiedId, scrollToBo
   return (
     prev.msg.id === next.msg.id &&
     prev.msg.text === next.msg.text &&
+    prev.msg.quotedText === next.msg.quotedText &&
     prev.isCurrentlySpeaking === next.isCurrentlySpeaking &&
     (prev.copiedId === prev.msg.id) === (next.copiedId === next.msg.id) &&
     prev.language === next.language
@@ -433,6 +464,7 @@ interface MessageListProps {
   onOpenPreview?: (project: ArtifactProject, fileId?: string) => void;
   onEditUserMessage?: (msgId: string, newText: string) => void;
   onRetryAiMessage?: (aiMsgId: string) => void;
+  onReplyToMessage?: (quote: string) => void;
   language?: string;
 }
 
@@ -447,6 +479,7 @@ const MessageList = React.memo(({
   onOpenPreview,
   onEditUserMessage,
   onRetryAiMessage,
+  onReplyToMessage,
   language
 }: MessageListProps) => {
   if (filteredMessages.length === 0 && searchQuery) {
@@ -475,6 +508,7 @@ const MessageList = React.memo(({
             onOpenPreview={onOpenPreview}
             onEditUserMessage={onEditUserMessage}
             onRetryAiMessage={onRetryAiMessage}
+            onReplyToMessage={onReplyToMessage}
             language={language}
           />
         ))}
@@ -483,8 +517,21 @@ const MessageList = React.memo(({
   );
 });
 
-export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentChatId, setCurrentChatId, setCurrentScreen, isFocusMode = false, onToggleFocusMode }: ChatScreenProps) {
+export default function ChatScreen({ 
+  initialPrompt, 
+  clearInitialPrompt, 
+  currentChatId, 
+  setCurrentChatId, 
+  setCurrentScreen, 
+  isFocusMode = false, 
+  onToggleFocusMode,
+  activeSearchData,
+  setActiveSearchData,
+  activeTab = 'answer',
+  setActiveTab
+}: ChatScreenProps) {
   const [messages, setMessages] = useState<Message[]>([]);
+  
   const [interimVoiceText, setInterimVoiceText] = useState<string | undefined>(undefined);
   const messagesRef = useRef(messages);
   useEffect(() => {
@@ -501,6 +548,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
   const [streamingText, setStreamingText] = useState<string>('');
   const [isWebSearchActive, setIsWebSearchActive] = useState(false);
   const [streamingSources, setStreamingSources] = useState<GroundingSource[]>([]);
+  const [streamingSearchImages, setStreamingSearchImages] = useState<SearchImage[]>([]);
   const [isSpeaking, setIsSpeaking] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summaryText, setSummaryText] = useState<string | null>(null);
@@ -517,6 +565,181 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
     project: null,
     activeFileId: null
   });
+
+  // Persistent active search data for the current chat session
+  const [currentSearchData, setCurrentSearchData] = useState<{
+    sources: GroundingSource[];
+    searchImages: SearchImage[];
+  } | null>(null);
+
+  // Select-to-Reply State
+  const [floatingReply, setFloatingReply] = useState<{
+    text: string;
+    top: number;
+    left: number;
+  } | null>(null);
+  const [replyingToText, setReplyingToText] = useState<string | null>(null);
+
+  const prevChatIdRef = useRef<string | null>(currentChatId);
+
+  // Select-to-Reply: Detect text selection inside AI message bubbles (Desktop & Mobile)
+  useEffect(() => {
+    const handleSelection = () => {
+      const selection = window.getSelection();
+      if (!selection || selection.isCollapsed || !selection.rangeCount) {
+        return;
+      }
+
+      const text = selection.toString().trim();
+      if (!text || text.length < 2) {
+        return;
+      }
+
+      const range = selection.getRangeAt(0);
+      const commonAncestor = range.commonAncestorContainer;
+      const element = commonAncestor.nodeType === Node.ELEMENT_NODE 
+        ? (commonAncestor as Element) 
+        : commonAncestor.parentElement;
+
+      // Check if selection is strictly within an AI message bubble
+      const aiBubble = element?.closest('[data-ai-bubble="true"]');
+      if (!aiBubble) {
+        return;
+      }
+
+      const rect = range.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return;
+
+      // Calculate position directly above selection
+      let top = rect.top - 46;
+      if (top < 12) {
+        top = rect.bottom + 10;
+      }
+
+      let left = rect.left + rect.width / 2;
+      left = Math.max(70, Math.min(window.innerWidth - 70, left));
+
+      setFloatingReply({
+        text,
+        top,
+        left
+      });
+    };
+
+    const handlePointerDown = (e: MouseEvent | TouchEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('#floating-reply-btn')) {
+        return;
+      }
+      setFloatingReply(null);
+    };
+
+    let selectionTimer: ReturnType<typeof setTimeout> | null = null;
+    const onSelectionChange = () => {
+      if (selectionTimer) clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(handleSelection, 150);
+    };
+
+    const onMouseUp = () => {
+      setTimeout(handleSelection, 50);
+    };
+
+    const onTouchEnd = () => {
+      setTimeout(handleSelection, 150);
+    };
+
+    document.addEventListener('selectionchange', onSelectionChange);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('touchend', onTouchEnd);
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+
+    return () => {
+      if (selectionTimer) clearTimeout(selectionTimer);
+      document.removeEventListener('selectionchange', onSelectionChange);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('touchend', onTouchEnd);
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+    };
+  }, []);
+
+  const handleReplyToQuote = useCallback((quoteText: string) => {
+    setReplyingToText(quoteText);
+    setFloatingReply(null);
+    window.getSelection()?.removeAllRanges();
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 50);
+  }, []);
+
+  // Handle switching between chats
+  useEffect(() => {
+    // Only reset search data if user truly switched to another chat or pressed New Chat,
+    // NOT when a new chat document ID is created mid-prompt!
+    if (prevChatIdRef.current !== currentChatId) {
+      const wasCreationOfNewChat = prevChatIdRef.current === null && currentChatId !== null && isTyping;
+      prevChatIdRef.current = currentChatId;
+      
+      if (!wasCreationOfNewChat) {
+        setStreamingSources([]);
+        setStreamingSearchImages([]);
+        setCurrentSearchData(null);
+        if (setActiveSearchData) setActiveSearchData(null);
+        if (setActiveTab) setActiveTab('answer');
+      }
+    }
+  }, [currentChatId, isTyping, setActiveSearchData, setActiveTab]);
+
+  // Find the latest AI message that contains search data in this chat
+  const latestSearchMsg = useMemo(() => {
+    return [...messages].reverse().find(
+      m => m.sender === 'ai' && (
+        (Array.isArray(m.sources) && m.sources.length > 0) ||
+        (Array.isArray(m.searchImages) && m.searchImages.length > 0)
+      )
+    );
+  }, [messages]);
+
+  // Synchronize search data to header (TopBar) permanently based on message data
+  useEffect(() => {
+    // 1. If actively typing/streaming with live search results, keep streaming results active
+    if (isTyping) {
+      if (currentSearchData && (
+        (currentSearchData.sources && currentSearchData.sources.length > 0) ||
+        (currentSearchData.searchImages && currentSearchData.searchImages.length > 0)
+      )) {
+        if (setActiveSearchData) setActiveSearchData(currentSearchData);
+      }
+      return;
+    }
+
+    // 2. If we already have active search data with sources or images, preserve it permanently
+    if (currentSearchData && (
+      (currentSearchData.sources && currentSearchData.sources.length > 0) ||
+      (currentSearchData.searchImages && currentSearchData.searchImages.length > 0)
+    )) {
+      if (setActiveSearchData) setActiveSearchData(currentSearchData);
+      return;
+    }
+
+    // 3. Otherwise, use the latest search message saved in this conversation's history
+    if (latestSearchMsg) {
+      const bundle = {
+        sources: latestSearchMsg.sources || [],
+        searchImages: latestSearchMsg.searchImages || []
+      };
+      setCurrentSearchData(bundle);
+      if (setActiveSearchData) setActiveSearchData(bundle);
+      return;
+    }
+
+    // 4. If this chat has no search data at all, only then reset
+    if (messages.length > 0 && !latestSearchMsg && !isTyping) {
+      setCurrentSearchData(null);
+      if (setActiveSearchData) setActiveSearchData(null);
+    }
+  }, [messages, isTyping, currentSearchData, latestSearchMsg, setActiveSearchData]);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -619,7 +842,64 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       setUserHasScrolled(true);
       setShowScrollBottomBtn(true);
     }
-  }, []);
+
+    // Dynamic Viewport Message Search Data Synchronization (STEP 5)
+    // When user scrolls through chat history, update header tab bar to match visible message
+    if (messages.length === 0 || isTyping) return;
+
+    if (isNearBottom) {
+      // User is at bottom: sync to the latest AI message
+      const latestAi = [...messages].reverse().find(m => m.sender === 'ai');
+      if (latestAi && ((latestAi.sources && latestAi.sources.length > 0) || (latestAi.searchImages && latestAi.searchImages.length > 0))) {
+        const bundle = { sources: latestAi.sources || [], searchImages: latestAi.searchImages || [] };
+        setCurrentSearchData(bundle);
+        if (setActiveSearchData) setActiveSearchData(bundle);
+      } else {
+        setCurrentSearchData(null);
+        if (setActiveSearchData) setActiveSearchData(null);
+      }
+      return;
+    }
+
+    const container = scrollContainerRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const viewportCenterY = containerRect.top + containerRect.height / 2;
+
+    const msgElements = container.querySelectorAll<HTMLElement>('[data-msg-id]');
+    let closestMsgId: string | null = null;
+    let minDistance = Infinity;
+
+    msgElements.forEach(el => {
+      const rect = el.getBoundingClientRect();
+      if (rect.bottom >= containerRect.top && rect.top <= containerRect.bottom) {
+        const elCenterY = rect.top + rect.height / 2;
+        const dist = Math.abs(elCenterY - viewportCenterY);
+        if (dist < minDistance) {
+          minDistance = dist;
+          closestMsgId = el.getAttribute('data-msg-id');
+        }
+      }
+    });
+
+    if (closestMsgId) {
+      const targetIndex = messages.findIndex(m => m.id === closestMsgId);
+      if (targetIndex !== -1) {
+        const targetMsg = messages[targetIndex];
+        const aiMsg = targetMsg.sender === 'ai' 
+          ? targetMsg 
+          : messages.slice(targetIndex + 1).find(m => m.sender === 'ai');
+
+        if (aiMsg && ((aiMsg.sources && aiMsg.sources.length > 0) || (aiMsg.searchImages && aiMsg.searchImages.length > 0))) {
+          const bundle = { sources: aiMsg.sources || [], searchImages: aiMsg.searchImages || [] };
+          setCurrentSearchData(bundle);
+          if (setActiveSearchData) setActiveSearchData(bundle);
+        } else {
+          setCurrentSearchData(null);
+          if (setActiveSearchData) setActiveSearchData(null);
+        }
+      }
+    }
+  }, [messages, isTyping, setActiveSearchData]);
 
   const scrollRafRef = useRef<number | null>(null);
 
@@ -1040,7 +1320,9 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
           image: data.image,
           images: data.images,
           sources: data.sources,
-          searchQueries: data.searchQueries
+          searchImages: data.searchImages,
+          searchQueries: data.searchQueries,
+          quotedText: data.quotedText
         });
       });
       setMessages(msgs);
@@ -1309,10 +1591,13 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
     };
   }, [language, selectedImages.length]);
 
-  const handleSend = async (textOverride?: string, systemPromptOverride?: string, temperature?: number) => {
+  const handleSend = async (textOverride?: string, systemPromptOverride?: string, temperature?: number, quoteOverride?: string) => {
     const text = textOverride !== undefined ? textOverride : (inputRef.current?.value || '');
     if (!text.trim() && selectedImages.length === 0) return;
     if (!userId) return;
+
+    const currentQuote = quoteOverride !== undefined ? quoteOverride : replyingToText;
+    setReplyingToText(null);
 
     let usedVoice = false;
     if (isListening) {
@@ -1330,6 +1615,10 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
     clearAllImages();
     baseInputRef.current = '';
     setIsTyping(true);
+
+    setStreamingSources([]);
+    setStreamingSearchImages([]);
+
     setCurrentAiActivity(hasUploadedImages ? 'analyzing_image' : 'thinking');
     const initialStatusText = language === 'bn' ? 'নেক্সারা এআই ভাবছে...' : 'Nexara AI is thinking...';
     setStatusMessage(initialStatusText);
@@ -1353,6 +1642,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
     let replyText = "";
     let currentSources: GroundingSource[] = [];
     let currentQueries: string[] = [];
+    let currentSearchImages: SearchImage[] = [];
 
     try {
       if (!chatId) {
@@ -1380,6 +1670,9 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         sender: 'user',
         timestamp: serverTimestamp()
       };
+      if (currentQuote) {
+        userMessageData.quotedText = currentQuote;
+      }
       if (currentImages.length > 0) {
         userMessageData.images = currentImages;
         userMessageData.image = currentImages[0];
@@ -1408,8 +1701,10 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         };
       });
       
+      const userPromptText = currentQuote ? `[Replying to: "${currentQuote}"]\n${text}` : text;
+
       if (currentImages.length > 0) {
-        const contentArray: any[] = [{ type: 'text', text: text || ' ' }];
+        const contentArray: any[] = [{ type: 'text', text: userPromptText || ' ' }];
         currentImages.forEach((img: string) => {
           contentArray.push({ type: 'image_url', image_url: { url: img } });
         });
@@ -1418,7 +1713,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
           content: contentArray
         });
       } else {
-        groqMessages.push({ role: 'user', content: text });
+        groqMessages.push({ role: 'user', content: userPromptText });
       }
 
       // Fetch active API key from Firestore
@@ -1458,7 +1753,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
           focusMode: isFocusMode,
           systemPromptOverride,
           temperature,
-          webSearch: isWebSearchActive,
+          webSearch: 'auto',
           model: selectedModel,
           stream: true
         })
@@ -1521,9 +1816,26 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
                   setCurrentAiActivity('analyzing_image');
                 }
               }
-              if (data.sources && Array.isArray(data.sources)) {
+              let searchDataUpdated = false;
+              if (data.sources && Array.isArray(data.sources) && data.sources.length > 0) {
                 currentSources = data.sources;
                 setStreamingSources(data.sources);
+                searchDataUpdated = true;
+              }
+              if (data.searchImages && Array.isArray(data.searchImages) && data.searchImages.length > 0) {
+                currentSearchImages = [...currentSearchImages, ...data.searchImages];
+                setStreamingSearchImages(currentSearchImages);
+                searchDataUpdated = true;
+              }
+              if (data.images && Array.isArray(data.images) && data.images.length > 0) {
+                currentSearchImages = [...currentSearchImages, ...data.images];
+                setStreamingSearchImages(currentSearchImages);
+                searchDataUpdated = true;
+              }
+              if (searchDataUpdated) {
+                const bundle = { sources: currentSources, searchImages: currentSearchImages };
+                setCurrentSearchData(bundle);
+                if (setActiveSearchData) setActiveSearchData(bundle);
               }
               if (data.searchQueries && Array.isArray(data.searchQueries)) {
                 currentQueries = data.searchQueries;
@@ -1570,8 +1882,19 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         if (data.sources && Array.isArray(data.sources)) {
           currentSources = data.sources;
         }
+        if (data.searchImages && Array.isArray(data.searchImages)) {
+          currentSearchImages = [...currentSearchImages, ...data.searchImages];
+        }
+        if (data.images && Array.isArray(data.images)) {
+          currentSearchImages = [...currentSearchImages, ...data.images];
+        }
         if (data.searchQueries && Array.isArray(data.searchQueries)) {
           currentQueries = data.searchQueries;
+        }
+        if (currentSources.length > 0 || currentSearchImages.length > 0) {
+          const bundle = { sources: currentSources, searchImages: currentSearchImages };
+          setCurrentSearchData(bundle);
+          if (setActiveSearchData) setActiveSearchData(bundle);
         }
       } else {
         const textResponse = await response.text().catch(() => "");
@@ -1599,6 +1922,9 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
       if (currentQueries.length > 0) {
         aiResponseData.searchQueries = currentQueries;
       }
+      if (currentSearchImages.length > 0) {
+        aiResponseData.searchImages = currentSearchImages;
+      }
 
       const aiDocRef = await addDoc(collection(db, path), aiResponseData);
 
@@ -1609,7 +1935,23 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         setStatusMessage('');
         setStatusTool('');
         setStreamingText('');
-        setStreamingSources([]);
+        
+        // Preserve streamingSources & streamingSearchImages so user can browse Links & Images tabs without disappearing
+        if (currentSources.length > 0) {
+          setStreamingSources(currentSources);
+        }
+        if (currentSearchImages.length > 0) {
+          setStreamingSearchImages(currentSearchImages);
+        }
+        if (currentSources.length > 0 || currentSearchImages.length > 0) {
+          const finalBundle = { sources: currentSources, searchImages: currentSearchImages };
+          setCurrentSearchData(finalBundle);
+          if (setActiveSearchData) setActiveSearchData(finalBundle);
+        } else {
+          setCurrentSearchData(null);
+          if (setActiveSearchData) setActiveSearchData(null);
+        }
+
         abortControllerRef.current = null;
         finishBackgroundGeneration(replyText);
 
@@ -1679,7 +2021,14 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         setStatusMessage('');
         setStatusTool('');
         setStreamingText('');
-        setStreamingSources([]);
+        
+        if (currentSources.length > 0) {
+          setStreamingSources(currentSources);
+        }
+        if (currentSearchImages.length > 0) {
+          setStreamingSearchImages(currentSearchImages);
+        }
+
         abortControllerRef.current = null;
         finishBackgroundGeneration(replyText);
         return;
@@ -2130,7 +2479,9 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         className="flex-1 overflow-y-auto px-3 pt-3 pb-2 md:px-8 md:pt-4 scroll-smooth-manual"
         style={{ scrollBehavior: 'auto', overflowAnchor: 'auto' }}
       >
-        {messages.length === 0 && !isTyping ? (
+        {activeTab === 'answer' ? (
+          <>
+            {messages.length === 0 && !isTyping ? (
           <div className="flex flex-col min-h-full justify-end text-center pb-2 pt-4">
             <div className="mt-auto mb-2 flex flex-col items-center justify-center w-full max-w-5xl mx-auto">
             <motion.h1 
@@ -2278,6 +2629,7 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
               onOpenPreview={handleOpenPreview}
               onEditUserMessage={handleEditUserMessage}
               onRetryAiMessage={handleRetryAiMessage}
+              onReplyToMessage={handleReplyToQuote}
               language={language}
             />
 
@@ -2403,8 +2755,108 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
 
         {/* Minimal scroll target */}
         <div ref={messagesEndRef} className="h-4 shrink-0 w-full" />
+            </div>
+          )}
+        </>
+      ) : activeTab === 'links' ? (
+      <div className="max-w-4xl mx-auto w-full py-8 space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500 px-4">
+        <h2 className="text-2xl font-display font-bold mb-6 flex items-center gap-2">
+          <BookOpen className="text-primary" />
+          {language === 'bn' ? 'তথ্যসূত্রসমূহ' : 'Sources & Links'}
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {(() => {
+            const activeSources = (activeSearchData?.sources && activeSearchData.sources.length > 0)
+              ? activeSearchData.sources
+              : ((currentSearchData?.sources && currentSearchData.sources.length > 0)
+                  ? currentSearchData.sources
+                  : (latestSearchMsg?.sources && latestSearchMsg.sources.length > 0
+                      ? latestSearchMsg.sources
+                      : (streamingSources.length > 0 
+                          ? streamingSources 
+                          : ([...messages].reverse().find(m => m.sender === 'ai' && m.sources && m.sources.length > 0)?.sources || []))));
+
+            if (activeSources.length === 0) {
+              return (
+                <div className="col-span-full text-center py-16 bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-3xl text-[var(--text-muted)] text-sm">
+                  {language === 'bn' ? 'এই অনুসন্ধানের জন্য কোনো লিঙ্ক পাওয়া যায়নি।' : 'No links or sources found for this search.'}
+                </div>
+              );
+            }
+
+            return activeSources.map((src, i) => {
+              let domain = "";
+              try { domain = new URL(src.uri).hostname.replace(/^www\./, ""); } catch { domain = "Web Source"; }
+              return (
+                <a
+                  key={i}
+                  href={src.uri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex flex-col gap-2 p-5 rounded-3xl bg-[var(--glass-bg)] border border-[var(--glass-border)] hover:border-primary/50 hover:bg-[var(--hover)] transition-all group/link shadow-sm hover:shadow-md"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold text-primary uppercase tracking-wider bg-primary/10 px-2 py-0.5 rounded-full">{domain}</span>
+                    <ExternalLink size={14} className="text-[var(--text-muted)] group-hover/link:text-primary transition-colors" />
+                  </div>
+                  <h4 className="font-bold text-base text-[var(--text)] line-clamp-2 group-hover/link:text-primary transition-colors leading-tight">{src.title || domain}</h4>
+                  <p className="text-xs text-[var(--text-muted)] truncate mt-auto">{src.uri}</p>
+                </a>
+              );
+            });
+          })()}
+        </div>
+      </div>
+    ) : (
+      <div className="max-w-5xl mx-auto w-full py-8 animate-in fade-in slide-in-from-bottom-4 duration-500 px-4">
+        <h2 className="text-2xl font-display font-bold mb-6 flex items-center gap-2">
+          <ImageIcon className="text-primary" />
+          {language === 'bn' ? 'ছবি গ্যালারি' : 'Image Gallery'}
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+          {(() => {
+            const activeImages = (activeSearchData?.searchImages && activeSearchData.searchImages.length > 0)
+              ? activeSearchData.searchImages
+              : ((currentSearchData?.searchImages && currentSearchData.searchImages.length > 0)
+                  ? currentSearchData.searchImages
+                  : (latestSearchMsg?.searchImages && latestSearchMsg.searchImages.length > 0
+                      ? latestSearchMsg.searchImages
+                      : (streamingSearchImages.length > 0 
+                          ? streamingSearchImages 
+                          : ([...messages].reverse().find(m => m.sender === 'ai' && m.searchImages && m.searchImages.length > 0)?.searchImages || []))));
+
+            if (activeImages.length === 0) {
+              return (
+                <div className="col-span-full text-center py-16 bg-[var(--glass-bg)] border border-[var(--glass-border)] rounded-3xl text-[var(--text-muted)] text-sm">
+                  {language === 'bn' ? 'এই অনুসন্ধানের জন্য কোনো ছবি পাওয়া যায়নি।' : 'No images found for this search.'}
+                </div>
+              );
+            }
+
+            return activeImages.map((img, i) => (
+              <div 
+                key={i} 
+                className="group/search-img relative rounded-3xl overflow-hidden border border-[var(--glass-border)] aspect-square bg-black/20 cursor-pointer shadow-sm hover:shadow-xl transition-all hover:border-primary/50"
+                onClick={() => window.open(img.url, '_blank')}
+              >
+                <img 
+                  src={img.url} 
+                  alt={img.sourceTitle} 
+                  className="w-full h-full object-cover group-hover/search-img:scale-110 transition-transform duration-700" 
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent opacity-0 group-hover/search-img:opacity-100 transition-opacity flex items-end p-4">
+                  <p className="text-xs text-white font-bold line-clamp-2 leading-tight">{img.sourceTitle}</p>
+                </div>
+              </div>
+            ));
+          })()}
+        </div>
       </div>
     )}
+
+    {/* Minimal scroll target */}
+    <div ref={messagesEndRef} className="h-4 shrink-0 w-full" />
+  </div>
 
     {/* Floating Scroll to Bottom Button */}
     <AnimatePresence>
@@ -2426,10 +2878,10 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         </motion.button>
       )}
     </AnimatePresence>
-  </div>
 
       {/* Input Area */}
-      <ChatInputBar
+      <div className={`${activeTab !== 'answer' ? 'hidden' : 'block'}`}>
+        <ChatInputBar
         onSend={handleSend}
         isTyping={isTyping}
         onStopGeneration={handleStopGeneration}
@@ -2460,7 +2912,10 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
         voiceTranscript={interimVoiceText}
         selectedModel={selectedModel}
         onModelChange={setSelectedModel}
+        replyingToText={replyingToText}
+        onCancelReply={() => setReplyingToText(null)}
       />
+      </div>
 
       {/* Summary Modal */}
       <AnimatePresence>
@@ -2511,6 +2966,38 @@ export default function ChatScreen({ initialPrompt, clearInitialPrompt, currentC
               </div>
             </motion.div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Floating "↩ Reply" Button for Text Selection */}
+      <AnimatePresence>
+        {floatingReply && (
+          <motion.button
+            id="floating-reply-btn"
+            type="button"
+            initial={{ opacity: 0, scale: 0.85, y: 6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.85, y: 6 }}
+            transition={{ duration: 0.15, ease: "easeOut" }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleReplyToQuote(floatingReply.text);
+            }}
+            style={{
+              position: 'fixed',
+              top: `${floatingReply.top}px`,
+              left: `${floatingReply.left}px`,
+              transform: 'translateX(-50%)',
+              background: 'linear-gradient(135deg, #7C5CFC 0%, #E345A8 100%)',
+              boxShadow: '0 8px 24px -4px rgba(227, 69, 168, 0.5), 0 4px 12px -2px rgba(124, 92, 252, 0.4)'
+            }}
+            className="z-[9999] flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold text-white shadow-xl hover:brightness-110 active:scale-95 transition-transform duration-150 cursor-pointer select-none border border-white/20 backdrop-blur-md"
+          >
+            <Reply size={13} className="rotate-180 flex-shrink-0" />
+            <span className="tracking-tight">{language === 'bn' ? 'উত্তর দিন' : 'Reply'}</span>
+          </motion.button>
         )}
       </AnimatePresence>
 

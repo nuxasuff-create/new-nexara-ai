@@ -1,4 +1,4 @@
-import { Moon, Sun, Globe, LogOut, ChevronRight, User, Shield, Bell, X, ArrowLeft, Camera, Lock, Eye, Volume2, Mail as MailIcon, Smartphone, Brain } from 'lucide-react';
+import { Moon, Sun, Globe, LogOut, ChevronRight, User, Shield, Bell, X, ArrowLeft, Camera, Lock, Eye, Volume2, Mail as MailIcon, Smartphone, Brain, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { signOut, updateProfile, updatePassword } from 'firebase/auth';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
@@ -11,11 +11,12 @@ interface SettingsScreenProps {
   toggleTheme: () => void;
   isDark: boolean;
   onOpenOnboarding?: () => void;
+  setCurrentScreen?: (screen: string) => void;
 }
 
 type SettingsTab = 'main' | 'profile' | 'privacy' | 'notifications' | 'memory';
 
-export default function SettingsScreen({ toggleTheme, isDark, onOpenOnboarding }: SettingsScreenProps) {
+export default function SettingsScreen({ toggleTheme, isDark, onOpenOnboarding, setCurrentScreen }: SettingsScreenProps) {
   const { language, setLanguage, t } = useLanguage();
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<SettingsTab>('main');
@@ -264,6 +265,43 @@ export default function SettingsScreen({ toggleTheme, isDark, onOpenOnboarding }
                 <option key={code} value={code}>{name}</option>
               ))}
             </select>
+          </div>
+        </div>
+      </section>
+
+      {/* Legal & About */}
+      <section>
+        <h2 className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-widest mb-4 px-2">
+          {language === 'bn' ? 'আইনি ও সহায়তা' : 'Legal & Support'}
+        </h2>
+        <div className="bg-[var(--glass-bg)] backdrop-blur-xl rounded-[2rem] border border-[var(--glass-border)] shadow-[var(--shadow-premium)] overflow-hidden">
+          <div 
+            onClick={() => setCurrentScreen?.('privacy')}
+            className="flex items-center justify-between p-5 px-6 border-b border-[var(--glass-border)] hover:bg-[var(--hover)] transition-all duration-300 cursor-pointer group"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white transition-all shadow-sm">
+                <Shield size={22} />
+              </div>
+              <div>
+                <p className="font-semibold text-[var(--text)]">{t.privacyPolicy}</p>
+              </div>
+            </div>
+            <ChevronRight size={20} className="text-[var(--text-muted)] group-hover:text-[var(--text)] transition-colors group-hover:translate-x-1" />
+          </div>
+          <div 
+            onClick={() => setCurrentScreen?.('terms')}
+            className="flex items-center justify-between p-5 px-6 hover:bg-[var(--hover)] transition-all duration-300 cursor-pointer group"
+          >
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center group-hover:bg-indigo-500 group-hover:text-white transition-all shadow-sm">
+                <FileText size={22} />
+              </div>
+              <div>
+                <p className="font-semibold text-[var(--text)]">{t.termsOfService}</p>
+              </div>
+            </div>
+            <ChevronRight size={20} className="text-[var(--text-muted)] group-hover:text-[var(--text)] transition-colors group-hover:translate-x-1" />
           </div>
         </div>
       </section>

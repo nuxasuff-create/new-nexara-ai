@@ -73,6 +73,8 @@ export const translations = {
     focusMode: 'Focus Mode',
     readingMode: 'Reading Mode',
     exitFocus: 'Exit Focus',
+    privacyPolicy: 'Privacy Policy',
+    termsOfService: 'Terms of Service',
   },
   bn: {
     welcome: 'স্বাগতম!',
@@ -137,6 +139,8 @@ export const translations = {
     focusMode: 'ফোকাস মোড',
     readingMode: 'রিডিং মোড',
     exitFocus: 'ফোকাস ত্যাগ করুন',
+    privacyPolicy: 'গোপনীয়তা নীতি',
+    termsOfService: 'পরিষেবার শর্তাবলী',
   },
   zh: {
     welcome: '欢迎回来！',
@@ -201,6 +205,8 @@ export const translations = {
     focusMode: '专注模式',
     readingMode: '阅读模式',
     exitFocus: '退出专注',
+    privacyPolicy: '隐私政策',
+    termsOfService: '服务条款',
   },
   hi: {
     welcome: 'वापसी पर स्वागत है!',
@@ -265,6 +271,8 @@ export const translations = {
     focusMode: 'फोकस मोड',
     readingMode: 'रीडिंग मोड',
     exitFocus: 'फोकस से बाहर निकलें',
+    privacyPolicy: 'गोपनीयता नीति',
+    termsOfService: 'सेवा की शर्तें',
   },
   es: {
     welcome: '¡Bienvenido de nuevo!',
@@ -329,6 +337,8 @@ export const translations = {
     focusMode: 'Modo Enfoque',
     readingMode: 'Modo Lectura',
     exitFocus: 'Salir de Enfoque',
+    privacyPolicy: 'Política de Privacidad',
+    termsOfService: 'Términos de Servicio',
   },
   fr: {
     welcome: 'Bon retour !',
@@ -393,5 +403,7 @@ export const translations = {
     focusMode: 'Mode Focus',
     readingMode: 'Mode Lecture',
     exitFocus: 'Quitter le Focus',
+    privacyPolicy: 'Politique de Confidentialité',
+    termsOfService: 'Conditions d\'Utilisation',
   }
 };

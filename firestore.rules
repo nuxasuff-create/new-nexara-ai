@@ -34,9 +34,17 @@ service cloud.firestore {
       }
     }
     
-    match /settings/{document=**} {
+    match /settings/admins {
       allow read: if isSignedIn();
       allow write: if isAdmin();
+    }
+
+    match /settings/{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    match /api_settings/{document=**} {
+      allow read, write: if isAdmin();
     }
     
     match /{document=**} {

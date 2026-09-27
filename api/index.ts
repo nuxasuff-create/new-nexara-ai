@@ -3,8 +3,25 @@ import express from "express";
 import dotenv from "dotenv";
 import * as cheerio from "cheerio";
 import OpenAI from "openai";
+import { 
+  getApiKey, 
+  saveApiKeySetting, 
+  deleteApiKeySetting, 
+  updateApiKeyStatus, 
+  listMaskedApiSettings 
+} from "./settingsStore.js";
 
 dotenv.config({ override: true });
+
+export interface GroundingSource {
+  title: string;
+  uri: string;
+}
+
+export interface SearchImage {
+  url: string;
+  sourceTitle: string;
+}
 
 // xKiro Key Pool for reliable access to Qwen 3.5 models
 const RAW_XKIRO_KEYS = [
@@ -86,9 +103,9 @@ export function parseApiError(err: any): string {
   return msg || "An unknown error occurred.";
 }
 
-function shouldTriggerWebSearch(userQuery: string, explicitSearchSetting?: boolean): boolean {
-  if (explicitSearchSetting === true) return true;
+function shouldTriggerWebSearch(userQuery: string, explicitSearchSetting?: boolean | string): boolean {
   if (explicitSearchSetting === false) return false;
+  if (explicitSearchSetting === true) return true;
   if (!userQuery || typeof userQuery !== "string") return false;
 
   const text = userQuery.trim().toLowerCase();
@@ -99,33 +116,21 @@ function shouldTriggerWebSearch(userQuery: string, explicitSearchSetting?: boole
     return true;
   }
 
-  // Common casual greetings and general identity questions - STRICTLY DO NOT trigger web search
-  const casualGreetingRegex = /^(hi|hello|hey|hy|hola|sup|yo|greetings|good\s*(morning|afternoon|evening|night)|how\s*are\s*you|how\s*r\s*u|how\s*is\s*it\s*going|whats\s*up|what's\s*up|who\s*are\s*you|what\s*is\s*your\s*name|who\s*made\s*you|who\s*created\s*you|who\s*built\s*you|কেমন\s*আছো|কেমন\s*আছেন|হাই|হ্যালো|হেই|নমস্কার|সালাম|আসসালামু\s*আলাইকুম|assalamu\s*alaikum|তুমি\s*কে|তোমার\s*নাম\s*কি|তোমাকে\s*কে\s*বানিয়েছে|তোমার\s*ডেভেলপার\s*কে|শুভ\s*(সকাল|সন্ধ্যা|রাত্রি))[!?.\s]*$/i;
+  // Common casual greetings, simple pleasantries, acknowledgments - DO NOT trigger web search
+  const casualGreetingRegex = /^(hi|hello|hey|hy|hola|sup|yo|greetings|good\s*(morning|afternoon|evening|night)|how\s*are\s*you|how\s*r\s*u|how\s*is\s*it\s*going|whats\s*up|what's\s*up|who\s*are\s*you|what\s*is\s*your\s*name|who\s*made\s*you|who\s*created\s*you|who\s*built\s*you|কেমন\s*আছো|কেমন\s*আছেন|হাই|হ্যালো|হেই|নমস্কার|সালাম|আসসালামু\s*আলাইকুম|assalamu\s*alaikum|তুমি\s*কে|তোমার\s*নাম\s*কি|তোমাকে\s*কে\s*বানিয়েছে|তোমার\s*ডেভেলপার\s*কে|শুভ\s*(সকাল|সন্ধ্যা|রাত্রি)|thanks|thank\s*you|ধন্যবাদ|welcome|স্বাগতম|ok|okay|হাঁ|না|yes|no|sure|fine|great|awesome|bye|goodbye|বিদায়|বিদায়|thx)[!?.\s]*$/i;
   
   if (casualGreetingRegex.test(text)) {
     return false;
   }
 
-  // Explicit real-time / live search and grounding keywords
-  const realtimeKeywords = [
-    "search", "search the web", "search online", "google", "look up online", "browse the web", "find online", "grounding",
-    "latest news", "current news", "today news", "today's news", "breaking news", "recent news", "news today", "news",
-    "stock price", "crypto price", "live price", "current price", "btc price", "eth price", "share market", "price of",
-    "weather today", "current weather", "weather forecast", "temperature today", "weather in",
-    "live score", "match score", "score today", "who won today", "who won", "game score", "match result",
-    "latest version", "release date", "recent update", "what happened today", "today's events", "what happened",
-    "who is the current", "what is the latest", "who is the president", "who is the prime minister", "who is the ceo",
-    "upcoming", "today", "yesterday", "tomorrow", "recent", "currently", "right now",
-    "2024", "2025", "2026", "2027",
-    "খবর", "আজকের খবর", "সর্বশেষ খবর", "সর্বশেষ", "আজকের", "লাইভ দাম", "শেয়ার বাজার", "আজকের আবহাওয়া", "আজকের খেলা", "লাইভ স্কোর", "বর্তমান", "কে জিতেছে", "নতুন আপডেট"
-  ];
-
-  const hasRealtimeKeyword = realtimeKeywords.some(keyword => text.includes(keyword));
-  if (hasRealtimeKeyword) {
-    return true;
+  // Pure simple mathematical expressions (e.g. "2+2", "50 * 4")
+  if (/^[\d\s+\-*/^().=]+$/.test(text)) {
+    return false;
   }
 
-  return false;
+  // Any topic or informational query automatically triggers web search
+  // to fetch live grounding sources & images for the Links and Images tabs
+  return true;
 }
 
 /**
@@ -140,7 +145,10 @@ async function callXkiroVision(
 ): Promise<string> {
   // Validate custom key prefix
   const validatedCustomKey = (customKey && !customKey.startsWith("gsk_")) ? customKey : undefined;
-  const keysToTry = validatedCustomKey ? [validatedCustomKey] : XKIRO_API_KEYS;
+  const dbKey = await getApiKey("xkiro");
+  const keysToTry = validatedCustomKey 
+    ? [validatedCustomKey] 
+    : (dbKey ? [dbKey, ...XKIRO_API_KEYS.filter(k => k !== dbKey)] : XKIRO_API_KEYS);
   let lastErr: any = null;
 
   if (keysToTry.length === 0) {
@@ -158,6 +166,7 @@ async function callXkiroVision(
 
     // Model fallback chain for xKiro Vision
     const xKiroModels = [
+      "qwen/qwen3-vl-plus:free",
       "qwen/qwen3.8-omni-flash",
       "qwen/qwen2.5-vl-72b-instruct",
       "qwen/qwen-vl-plus",
@@ -250,7 +259,10 @@ async function callXkiroPrimary(
 ): Promise<string> {
   // Validate custom key prefix
   const validatedCustomKey = (customKey && !customKey.startsWith("gsk_")) ? customKey : undefined;
-  const keysToTry = validatedCustomKey ? [validatedCustomKey] : XKIRO_API_KEYS;
+  const dbKey = await getApiKey("xkiro");
+  const keysToTry = validatedCustomKey 
+    ? [validatedCustomKey] 
+    : (dbKey ? [dbKey, ...XKIRO_API_KEYS.filter(k => k !== dbKey)] : XKIRO_API_KEYS);
   let lastErr: any = null;
 
   if (keysToTry.length === 0) {
@@ -357,6 +369,149 @@ async function callXkiroPrimary(
   throw lastErr || new Error("All xKiro primary models and keys failed.");
 }
 
+/**
+ * Fallback engine using Google Gemini API (Multimodal, high speed & vision capable)
+ */
+async function callGeminiFallback(
+  messages: any[],
+  temperature: number = 0.7,
+  onChunk?: (chunk: string) => void
+): Promise<string> {
+  const geminiKey = await getApiKey("gemini");
+  if (!geminiKey) throw new Error("GEMINI_API_KEY is not configured.");
+
+  const client = new OpenAI({
+    baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
+    apiKey: geminiKey
+  });
+
+  const openaiMessages = messages.map(m => {
+    const role = (m.role === "assistant" || m.role === "system" || m.role === "user") ? m.role : "user";
+    if (Array.isArray(m.content)) {
+      return {
+        role,
+        content: m.content.map((c: any) => {
+          if (c.type === "image_url") {
+            return {
+              type: "image_url",
+              image_url: { url: c.image_url.url }
+            };
+          }
+          if (c.type === "text") {
+            return { type: "text", text: c.text };
+          }
+          return c;
+        })
+      };
+    }
+    return { role, content: typeof m.content === "string" ? m.content : "" };
+  });
+
+  const models = ["gemini-2.5-flash", "gemini-1.5-flash"];
+  let lastErr: any = null;
+
+  for (const model of models) {
+    try {
+      console.log(`[Gemini Fallback] Attempting ${model}...`);
+      if (onChunk) {
+        const stream = await client.chat.completions.create({
+          model,
+          messages: openaiMessages as any,
+          temperature,
+          max_tokens: 4096,
+          stream: true
+        });
+        let accumulated = "";
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || "";
+          if (content) {
+            accumulated += content;
+            onChunk(content);
+          }
+        }
+        return accumulated;
+      } else {
+        const res = await client.chat.completions.create({
+          model,
+          messages: openaiMessages as any,
+          temperature,
+          max_tokens: 4096
+        });
+        return res.choices[0].message.content || "";
+      }
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[Gemini Fallback] ${model} failed:`, err?.message || err);
+    }
+  }
+  throw lastErr || new Error("All Gemini fallback models failed.");
+}
+
+/**
+ * Fallback engine using Groq API (Ultra-fast Llama 3 models for text & chat)
+ */
+async function callGroqFallback(
+  messages: any[],
+  temperature: number = 0.7,
+  onChunk?: (chunk: string) => void
+): Promise<string> {
+  const groqKey = await getApiKey("groq");
+  if (!groqKey) throw new Error("GROQ_API_KEY is not configured.");
+
+  const client = new OpenAI({
+    baseURL: "https://api.groq.com/openai/v1",
+    apiKey: groqKey
+  });
+
+  const openaiMessages = messages.map(m => {
+    const role = (m.role === "assistant" || m.role === "system" || m.role === "user") ? m.role : "user";
+    if (Array.isArray(m.content)) {
+      const textParts = m.content.filter((c: any) => c.type === 'text').map((c: any) => c.text).join('\n');
+      return { role, content: textParts };
+    }
+    return { role, content: typeof m.content === "string" ? m.content : "" };
+  });
+
+  const models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+  let lastErr: any = null;
+
+  for (const model of models) {
+    try {
+      console.log(`[Groq Fallback] Attempting ${model}...`);
+      if (onChunk) {
+        const stream = await client.chat.completions.create({
+          model,
+          messages: openaiMessages as any,
+          temperature,
+          max_tokens: 4096,
+          stream: true
+        });
+        let accumulated = "";
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || "";
+          if (content) {
+            accumulated += content;
+            onChunk(content);
+          }
+        }
+        return accumulated;
+      } else {
+        const res = await client.chat.completions.create({
+          model,
+          messages: openaiMessages as any,
+          temperature,
+          max_tokens: 4096
+        });
+        return res.choices[0].message.content || "";
+      }
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[Groq Fallback] ${model} failed:`, err?.message || err);
+    }
+  }
+  throw lastErr || new Error("All Groq fallback models failed.");
+}
+
 function sanitizeResponseText(text: string): string {
   if (!text) return "";
   let sanitized = text;
@@ -399,6 +554,116 @@ app.post("/api/tts", async (req, res) => {
   // Gracefully notify frontend to use high-quality Web Speech API synthesis
   res.json({ fallbackToBrowser: true });
 });
+
+async function performWebSearch(query: string, language: string): Promise<{ sources: GroundingSource[], images: SearchImage[], content: string }> {
+  const sources: GroundingSource[] = [];
+  const images: SearchImage[] = [];
+  let aggregatedContent = "WEB SEARCH RESULTS:\n\n";
+
+  let cleanQuery = query.trim().replace(/^search:\s*/i, "");
+  // Strip surrounding quotes and quotation marks
+  cleanQuery = cleanQuery.replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, '').trim();
+
+  // Extract core topic by stripping conversational prefixes/suffixes in Bengali & English
+  const searchSubject = cleanQuery
+    .replace(/(সম্পর্কে|সম্বন্ধে)\s*(বিস্তারিত|তথ্য|কিছু|সব|বিস্তারিত তথ্য|আলোচনা|ধারণা)?\s*(দাও|বলো|জানাও|লিখ|লিখুন|বলো তো|চাই|কী|কি|কে)?[.?!]*$/i, '')
+    .replace(/^(who is|what is|tell me about|information about|details of|details on|tell about|give me information about)\s*/i, '')
+    .replace(/\s*(details|information|overview|summary)\s*$/i, '')
+    .replace(/^["'“”‘’«»]+|["'“”‘’«»]+$/g, '')
+    .trim() || cleanQuery;
+
+  console.log(`[Web Search] Running multi-source web search for: "${cleanQuery}" (Subject: "${searchSubject}", Lang: ${language})`);
+
+  // 1. Primary Engine: DuckDuckGo HTML Endpoint
+  try {
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchSubject)}`;
+    const response = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': language === 'bn' ? 'bn-BD,bn;q=0.9,en-US;q=0.8,en;q=0.7' : 'en-US,en;q=0.9'
+      }
+    });
+
+    if (response.ok) {
+      const html = await response.text();
+      const $ = cheerio.load(html);
+
+      $('.result').slice(0, 10).each((i, el) => {
+        const title = $(el).find('.result__title').text().trim();
+        const snippet = $(el).find('.result__snippet').text().trim();
+        let uri = $(el).find('.result__url').text().trim() || $(el).find('.result__a').attr('href') || '';
+        
+        if (uri && !uri.startsWith('http')) {
+          uri = 'https://' + uri.replace(/^\/\//, '');
+        }
+
+        if (title && uri && !uri.includes('duckduckgo.com/y.js')) {
+          sources.push({ title, uri });
+          aggregatedContent += `[Source ${sources.length}] Title: ${title}\nURL: ${uri}\nSnippet: ${snippet}\n\n`;
+        }
+      });
+    } else {
+      console.warn(`[Web Search] DDG HTML returned status ${response.status}`);
+    }
+  } catch (error: any) {
+    console.warn("[Web Search] DDG HTML search error:", error?.message || error);
+  }
+
+  // 2. Wikipedia Search Engine: Fallback and Knowledge Grounding (Check both native language and English fallback)
+  const wikiLangs = language === 'bn' ? ['bn', 'en'] : ['en'];
+  for (const wikiLang of wikiLangs) {
+    if (sources.length >= 8 && images.length >= 4) break;
+    try {
+      const wikiUrl = `https://${wikiLang}.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(searchSubject)}&gsrlimit=8&prop=pageimages|extracts&exintro=1&explaintext=1&exsentences=3&pithumbsize=800&format=json&origin=*`;
+      const wikiRes = await fetch(wikiUrl);
+      
+      if (wikiRes.ok) {
+        const wikiData = await wikiRes.json();
+        const pages = wikiData.query?.pages || {};
+        
+        for (const p of Object.values(pages) as any[]) {
+          if (p.thumbnail?.source && images.length < 8) {
+            images.push({ url: p.thumbnail.source, sourceTitle: p.title || searchSubject });
+          }
+          if (sources.length < 8 && p.title) {
+            const wikiPageUrl = `https://${wikiLang}.wikipedia.org/wiki/${encodeURIComponent(p.title.replace(/ /g, "_"))}`;
+            if (!sources.some(s => s.uri === wikiPageUrl)) {
+              sources.push({ title: `${p.title} - Wikipedia`, uri: wikiPageUrl });
+              if (p.extract) {
+                aggregatedContent += `[Wikipedia Source] ${p.title}: ${p.extract}\nURL: ${wikiPageUrl}\n\n`;
+              }
+            }
+          }
+        }
+      }
+    } catch (wikiError: any) {
+      console.warn(`[Web Search] Wikipedia (${wikiLang}) search error:`, wikiError?.message || wikiError);
+    }
+  }
+
+  // 3. High-Quality Wikimedia Commons Image Search
+  if (images.length < 4) {
+    try {
+      const commonsUrl = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(searchSubject)}&gsrlimit=8&prop=pageimages&pithumbsize=800&format=json&origin=*`;
+      const commonsRes = await fetch(commonsUrl);
+      if (commonsRes.ok) {
+        const cData = await commonsRes.json();
+        const cPages = cData.query?.pages || {};
+        for (const cp of Object.values(cPages) as any[]) {
+          if (cp.thumbnail?.source && images.length < 8) {
+            images.push({ url: cp.thumbnail.source, sourceTitle: cp.title?.replace(/^File:/, '') || searchSubject });
+          }
+        }
+      }
+    } catch (cErr: any) {
+      console.warn("[Web Search] Wikimedia image search error:", cErr?.message || cErr);
+    }
+  }
+
+  console.log(`[Web Search] Search finished for "${searchSubject}". Found ${sources.length} sources and ${images.length} images.`);
+  return { sources, images, content: aggregatedContent };
+}
 
 app.post("/api/chat", async (req, res) => {
   try {
@@ -638,6 +903,17 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
 
     // Determine whether web search plugin should be triggered
     const enableWebSearch = shouldTriggerWebSearch(lastUserText, req.body.webSearch);
+    let searchSources: GroundingSource[] = [];
+    let searchImages: SearchImage[] = [];
+
+    if (enableWebSearch) {
+      const searchResult = await performWebSearch(lastUserText, language as string);
+      searchSources = searchResult.sources;
+      searchImages = searchResult.images;
+      if (searchResult.content) {
+        systemPrompt.content += `\n\nCRITICAL CONTEXT FROM LIVE WEB SEARCH:\n${searchResult.content}\n\nINSTRUCTION: Use the search results above to provide a factually accurate and up-to-date answer. If search images are available, do not include them in the text markdown unless asked, as they will be shown in a separate tab. Always cite sources if using specific information.`;
+      }
+    }
 
     // Primary execution via OpenRouter API with multi-model fallback (Llama 3.3 70B, DeepSeek R1, Qwen 2.5, MiniMax, Gemini via OpenRouter)
     let reply = "";
@@ -695,7 +971,9 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
 
       res.write(`data: ${JSON.stringify({ 
         status: language === 'bn' ? "নেক্সারা এআই উত্তর তৈরি করছে (Qwen 3.5)..." : "Nexara AI is generating response (Qwen 3.5)...", 
-        tool: hasImage ? "vision" : "thinking" 
+        tool: hasImage ? "vision" : "thinking",
+        sources: searchSources,
+        searchImages: searchImages
       })}\n\n`);
 
       try {
@@ -712,9 +990,12 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
           model
         );
       } catch (primaryErr: any) {
-        console.warn("[xKiro Primary Error] Falling back to vision engine:", primaryErr?.message || primaryErr);
+        console.warn("[xKiro Primary Error] Falling back:", primaryErr?.message || primaryErr);
         
+        let fallbackSucceeded = false;
+
         if (hasImage) {
+          // 1. Try xKiro Vision
           try {
             res.write(`data: ${JSON.stringify({ 
               status: language === 'bn' ? "ছবিটি বিশ্লেষণ করা হচ্ছে (xKiro Vision)..." : "Analyzing photo with xKiro Vision...", 
@@ -730,32 +1011,96 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
               }
             );
             executionEngine = "xkiro-vision-fallback";
+            fallbackSucceeded = true;
           } catch (xKiroVisionErr: any) {
-            console.error("[xKiro Vision Fallback Error] xKiro Vision failed:", xKiroVisionErr?.message || xKiroVisionErr);
-            const cleanErr = parseApiError(xKiroVisionErr);
+            console.warn("[xKiro Vision Error] Falling back to Gemini:", xKiroVisionErr?.message || xKiroVisionErr);
+          }
+
+          // 2. Try Gemini Fallback for Vision
+          const geminiVisionKey = await getApiKey("gemini");
+          if (!fallbackSucceeded && geminiVisionKey) {
+            try {
+              res.write(`data: ${JSON.stringify({ 
+                status: language === 'bn' ? "ছবিটি বিশ্লেষণ করা হচ্ছে (Gemini Vision)..." : "Analyzing photo with Gemini...", 
+                tool: "vision" 
+              })}\n\n`);
+
+              reply = await callGeminiFallback(
+                finalMessages,
+                temperature !== undefined ? temperature : 0.7,
+                (chunk) => {
+                  res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+                }
+              );
+              executionEngine = "gemini-vision-fallback";
+              fallbackSucceeded = true;
+            } catch (geminiErr: any) {
+              console.error("[Gemini Fallback Error] Gemini Vision failed:", geminiErr?.message || geminiErr);
+            }
+          }
+
+          if (!fallbackSucceeded) {
+            const cleanErr = parseApiError(primaryErr);
             res.write(`data: ${JSON.stringify({ error: cleanErr })}\n\n`);
             return res.end();
           }
         } else {
-          const cleanErr = parseApiError(primaryErr);
-          res.write(`data: ${JSON.stringify({ error: cleanErr })}\n\n`);
-          return res.end();
+          // Text-only message: Fallback to Gemini, then Groq
+          const geminiTextKey = await getApiKey("gemini");
+          if (geminiTextKey) {
+            try {
+              res.write(`data: ${JSON.stringify({ 
+                status: language === 'bn' ? "নেক্সারা এআই উত্তর তৈরি করছে (Gemini)..." : "Generating response (Gemini)...", 
+                tool: "thinking" 
+              })}\n\n`);
+
+              reply = await callGeminiFallback(
+                finalMessages,
+                temperature !== undefined ? temperature : 0.7,
+                (chunk) => {
+                  res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+                }
+              );
+              executionEngine = "gemini-text-fallback";
+              fallbackSucceeded = true;
+            } catch (geminiErr: any) {
+              console.warn("[Gemini Fallback Error]:", geminiErr?.message || geminiErr);
+            }
+          }
+
+          const groqTextKey = await getApiKey("groq");
+          if (!fallbackSucceeded && groqTextKey) {
+            try {
+              res.write(`data: ${JSON.stringify({ 
+                status: language === 'bn' ? "নেক্সারা এআই উত্তর তৈরি করছে (Groq)..." : "Generating response (Groq)...", 
+                tool: "thinking" 
+              })}\n\n`);
+
+              reply = await callGroqFallback(
+                finalMessages,
+                temperature !== undefined ? temperature : 0.7,
+                (chunk) => {
+                  res.write(`data: ${JSON.stringify({ chunk })}\n\n`);
+                }
+              );
+              executionEngine = "groq-text-fallback";
+              fallbackSucceeded = true;
+            } catch (groqErr: any) {
+              console.warn("[Groq Fallback Error]:", groqErr?.message || groqErr);
+            }
+          }
+
+          if (!fallbackSucceeded) {
+            const cleanErr = parseApiError(primaryErr);
+            res.write(`data: ${JSON.stringify({ error: cleanErr })}\n\n`);
+            return res.end();
+          }
         }
       }
 
       if (scrapedImages.length > 0) {
-        let imgBlock = `\n\n---\n### 🖼️ Website Images (Scraped)\n\n`;
-        let addedCount = 0;
-        for (const img of scrapedImages) {
-            if (!reply.includes(img)) {
-                imgBlock += `![Website Scraped Image](${img})\n\n`;
-                addedCount++;
-            }
-        }
-        if (addedCount > 0) {
-            reply += imgBlock;
-            res.write(`data: ${JSON.stringify({ chunk: imgBlock })}\n\n`);
-        }
+        const imageSources = scrapedImages.map(img => ({ url: img, sourceTitle: "Scraped from URL" }));
+        res.write(`data: ${JSON.stringify({ images: imageSources })}\n\n`);
       }
 
       reply = sanitizeResponseText(reply);
@@ -773,6 +1118,7 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
           model
         );
       } catch (primaryErr: any) {
+        let nonStreamFallbackSuccess = false;
         if (hasImage) {
           try {
             reply = await callXkiroVision(
@@ -780,29 +1126,46 @@ ${langInstruction}${memoryInstruction}${userInfoInstruction}${focusModeInstructi
               temperature !== undefined ? temperature : 0.7,
               apiKey
             );
+            nonStreamFallbackSuccess = true;
           } catch (xKiroErr: any) {
-            throw xKiroErr;
+            const gKey = await getApiKey("gemini");
+            if (gKey) {
+              try {
+                reply = await callGeminiFallback(finalMessages, temperature);
+                nonStreamFallbackSuccess = true;
+              } catch (gErr: any) {}
+            }
           }
         } else {
+          const gKey = await getApiKey("gemini");
+          if (gKey) {
+            try {
+              reply = await callGeminiFallback(finalMessages, temperature);
+              nonStreamFallbackSuccess = true;
+            } catch (gErr: any) {}
+          }
+          const grKey = await getApiKey("groq");
+          if (!nonStreamFallbackSuccess && grKey) {
+            try {
+              reply = await callGroqFallback(finalMessages, temperature);
+              nonStreamFallbackSuccess = true;
+            } catch (groqErr: any) {}
+          }
+        }
+
+        if (!nonStreamFallbackSuccess) {
           throw primaryErr;
         }
       }
 
-      if (scrapedImages.length > 0) {
-        let imgBlock = `\n\n---\n### 🖼️ Website Images (Scraped)\n\n`;
-        let addedCount = 0;
-        for (const img of scrapedImages) {
-            if (!reply.includes(img)) {
-                imgBlock += `![Website Scraped Image](${img})\n\n`;
-                addedCount++;
-            }
-        }
-        if (addedCount > 0) {
-            reply += imgBlock;
-        }
-      }
       reply = sanitizeResponseText(reply);
-      return res.json({ reply });
+      const responseData: any = { reply };
+      if (searchSources.length > 0) responseData.sources = searchSources;
+      if (searchImages.length > 0) responseData.searchImages = searchImages;
+      if (scrapedImages.length > 0) {
+        responseData.images = scrapedImages.map(img => ({ url: img, sourceTitle: "Scraped from URL" }));
+      }
+      return res.json(responseData);
     }
   } catch (error: any) {
     console.error("API Error:", error);
@@ -886,6 +1249,146 @@ RULES:
       ? (req.body.userText.substring(0, 30) + (req.body.userText.length > 30 ? '...' : '')) 
       : (req.body.language === 'bn' ? 'নতুন চ্যাট' : 'New Chat');
     return res.json({ title: fallback });
+  }
+});
+
+// ==========================================
+// ADMIN ADVANCED SETTINGS & API KEY MANAGEMENT
+// ==========================================
+
+const AUTHORIZED_ADMIN_EMAILS = new Set([
+  "ashtosh.biswas.2026@gmail.com",
+  "nuxasuff@gmail.com"
+]);
+
+async function verifyAdminAuth(req: express.Request): Promise<{ email: string } | null> {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+  const idToken = authHeader.split("Bearer ")[1]?.trim();
+  if (!idToken) return null;
+
+  try {
+    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+    if (!res.ok) {
+      return null;
+    }
+    const tokenInfo = await res.json();
+    if (!tokenInfo || !tokenInfo.email) {
+      return null;
+    }
+
+    const email = tokenInfo.email.toLowerCase().trim();
+    if (AUTHORIZED_ADMIN_EMAILS.has(email)) {
+      return { email };
+    }
+
+    const envAdmins = (process.env.ADMIN_EMAILS || "").toLowerCase().split(",").map(e => e.trim()).filter(Boolean);
+    if (envAdmins.includes(email)) {
+      return { email };
+    }
+
+    return null;
+  } catch (err) {
+    console.error("[AdminAuth] Token verification failed:", err);
+    return null;
+  }
+}
+
+// GET /api/admin/keys - Retrieve masked keys and status
+app.get("/api/admin/keys", async (req, res) => {
+  const admin = await verifyAdminAuth(req);
+  if (!admin) {
+    return res.status(401).json({ error: "Unauthorized: Verified administrator access required." });
+  }
+
+  try {
+    const settings = await listMaskedApiSettings();
+    return res.json({ 
+      settings, 
+      adminEmail: admin.email,
+      encryptionStandard: "AES-256-GCM"
+    });
+  } catch (err: any) {
+    console.error("[Admin API] Failed to list keys:", err);
+    return res.status(500).json({ error: "Failed to load API settings." });
+  }
+});
+
+// POST /api/admin/keys - Save encrypted API key
+app.post("/api/admin/keys", async (req, res) => {
+  const admin = await verifyAdminAuth(req);
+  if (!admin) {
+    return res.status(401).json({ error: "Unauthorized: Verified administrator access required." });
+  }
+
+  const { provider, apiKey, status } = req.body;
+  if (!provider || typeof provider !== "string") {
+    return res.status(400).json({ error: "Provider is required (e.g. groq, xkiro, gemini)." });
+  }
+
+  if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length < 8) {
+    return res.status(400).json({ error: "Invalid API key: must be at least 8 characters long." });
+  }
+
+  try {
+    const record = await saveApiKeySetting(provider, apiKey.trim(), status || "active");
+    return res.json({ 
+      success: true, 
+      message: `API key for ${provider.toUpperCase()} encrypted with AES-256-GCM and saved successfully.`,
+      provider: record.provider,
+      status: record.status,
+      updated_at: record.updated_at
+    });
+  } catch (err: any) {
+    console.error("[Admin API] Failed to save key:", err);
+    return res.status(500).json({ error: "Failed to encrypt and store API key." });
+  }
+});
+
+// PATCH /api/admin/keys/:provider/status - Update status (active / fallback / inactive)
+app.patch("/api/admin/keys/:provider/status", async (req, res) => {
+  const admin = await verifyAdminAuth(req);
+  if (!admin) {
+    return res.status(401).json({ error: "Unauthorized: Verified administrator access required." });
+  }
+
+  const { provider } = req.params;
+  const { status } = req.body;
+  if (!status || !["active", "fallback", "inactive"].includes(status)) {
+    return res.status(400).json({ error: "Status must be 'active', 'fallback', or 'inactive'." });
+  }
+
+  try {
+    const success = await updateApiKeyStatus(provider, status);
+    if (!success) {
+      return res.status(404).json({ error: `Provider ${provider} not found.` });
+    }
+    return res.json({ success: true, provider, status });
+  } catch (err: any) {
+    console.error("[Admin API] Failed to update status:", err);
+    return res.status(500).json({ error: "Failed to update status." });
+  }
+});
+
+// DELETE /api/admin/keys/:provider - Revert to fallback / delete custom key
+app.delete("/api/admin/keys/:provider", async (req, res) => {
+  const admin = await verifyAdminAuth(req);
+  if (!admin) {
+    return res.status(401).json({ error: "Unauthorized: Verified administrator access required." });
+  }
+
+  const { provider } = req.params;
+  try {
+    const success = await deleteApiKeySetting(provider);
+    return res.json({ 
+      success: true, 
+      message: `Custom key for ${provider.toUpperCase()} removed. Reverted to environment fallback.` 
+    });
+  } catch (err: any) {
+    console.error("[Admin API] Failed to delete key:", err);
+    return res.status(500).json({ error: "Failed to remove key." });
   }
 });
 

@@ -160,7 +160,7 @@ export default function Sidebar({ isOpen, onClose, currentScreen, setCurrentScre
           isOpen 
             ? 'w-64 md:w-[280px] translate-x-0 shadow-2xl shadow-black/20' 
             : 'w-0 -translate-x-full'
-        } ${isFocusMode ? 'md:-translate-x-full md:fixed' : 'md:static md:translate-x-0'}`}
+        } ${isFocusMode || !isOpen ? 'md:-translate-x-full md:fixed' : 'md:static md:translate-x-0'}`}
       >
         <div className={`flex-1 flex flex-col overflow-hidden relative transition-opacity duration-300 ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}>
           {/* Subtle dynamic background gradient inside sidebar */}
@@ -346,6 +346,28 @@ export default function Sidebar({ isOpen, onClose, currentScreen, setCurrentScre
                   <div className="text-primary/80 text-[11px] font-bold uppercase tracking-wider mt-0.5">Unlock Next-Gen AI</div>
                 </div>
               </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-4 py-2 border-t border-[var(--glass-border)] pt-4">
+              <button
+                onClick={() => {
+                  setCurrentScreen('privacy');
+                  if (window.innerWidth < 768) onClose();
+                }}
+                className="text-[10px] font-bold text-[var(--text-muted)] hover:text-primary transition-colors uppercase tracking-wider"
+              >
+                {t.privacyPolicy}
+              </button>
+              <div className="w-1 h-1 rounded-full bg-[var(--text-muted)] opacity-30" />
+              <button
+                onClick={() => {
+                  setCurrentScreen('terms');
+                  if (window.innerWidth < 768) onClose();
+                }}
+                className="text-[10px] font-bold text-[var(--text-muted)] hover:text-primary transition-colors uppercase tracking-wider"
+              >
+                {t.termsOfService}
+              </button>
             </div>
           </footer>
         </div>
